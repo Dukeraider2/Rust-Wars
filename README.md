@@ -1,6 +1,6 @@
 # Rust Wars // Frontier 09
 
-Rust Wars is a playable graphical battle slice for the demo: a compact, turn-based fight between human forces and AI war bots over a hand-built frontier map. The look is built from code-drawn pixel-style terrain and units, so the project needs no external art assets.
+Rust Wars is a playable graphical battle slice for the demo: a compact, turn-based fight between human forces and AI war bots over a hand-built isometric frontier map. The 2.5D presentation uses code-drawn pixel-style terrain, raised forests, faceted mountains and units, so the project needs no external art assets.
 
 ## Run
 

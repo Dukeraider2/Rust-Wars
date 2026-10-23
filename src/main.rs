@@ -3,9 +3,10 @@ use std::f32::consts::PI;
 
 const MAP_W: usize = 10;
 const MAP_H: usize = 8;
-const TILE: f32 = 64.0;
-const BOARD_X: f32 = 38.0;
-const BOARD_Y: f32 = 150.0;
+const ISO_TILE_W: f32 = 64.0;
+const ISO_TILE_H: f32 = 32.0;
+const ISO_CENTER_X: f32 = 356.0;
+const ISO_CENTER_Y: f32 = 430.0;
 const HUMAN: u8 = 0;
 const BOTS: u8 = 1;
 
@@ -77,11 +78,8 @@ impl Game {
         if is_mouse_button_pressed(MouseButton::Left) {
             let (mx, my) = mouse_position();
             if Rect::new(1020.0, 710.0, 212.0, 48.0).contains(vec2(mx, my)) { self.end_turn(); }
-            else if mx >= BOARD_X && mx < BOARD_X + MAP_W as f32 * TILE && my >= BOARD_Y && my < BOARD_Y + MAP_H as f32 * TILE {
-                let x = ((mx - BOARD_X) / TILE) as usize;
-                let y = ((my - BOARD_Y) / TILE) as usize;
-                self.click_tile(x, y);
-            } else if mx < 690.0 { self.selected = None; }
+            else if let Some((x, y)) = tile_from_screen(mx, my) { self.click_tile(x, y); }
+            else if mx < 690.0 { self.selected = None; }
         }
         if is_mouse_button_pressed(MouseButton::Right) { self.selected = None; }
     }
@@ -259,90 +257,107 @@ impl Game {
     fn draw_board(&self) {
         let unit_index = self.selected.and_then(|id| self.units.iter().position(|u| u.id == id));
         let reachable = unit_index.map(|i| self.reachable(i));
-        draw_rectangle(BOARD_X - 8.0, BOARD_Y - 8.0, MAP_W as f32 * TILE + 16.0, MAP_H as f32 * TILE + 16.0, rgb(27, 38, 43));
-        for y in 0..MAP_H { for x in 0..MAP_W {
-            let px = BOARD_X + x as f32 * TILE;
-            let py = BOARD_Y + y as f32 * TILE;
-            let base = match self.terrain[y][x] { Terrain::Plain => if (x + y) % 2 == 0 { rgb(69, 91, 73) } else { rgb(63, 84, 69) }, Terrain::Forest => rgb(45, 75, 59), Terrain::Mountain => rgb(76, 81, 79) };
-            draw_rectangle(px, py, TILE - 2.0, TILE - 2.0, base);
-            match self.terrain[y][x] {
-                Terrain::Plain => {
-                    draw_line(px + 7.0, py + 54.0, px + 24.0, py + 52.0, 1.0, rgb(84, 107, 80));
-                    draw_line(px + 40.0, py + 13.0, px + 55.0, py + 12.0, 1.0, rgb(84, 107, 80));
+        draw_text("NORTH SECTOR // 10 × 8 ISO GRID", 38.0, 181.0, 13.0, rgb(128, 149, 151));
+        for sum in 0..MAP_W + MAP_H - 1 {
+            for y in 0..MAP_H { for x in 0..MAP_W {
+                if x + y != sum { continue; }
+                let (cx, cy) = tile_center(x, y);
+                let base = match self.terrain[y][x] {
+                    Terrain::Plain => if (x + y) % 2 == 0 { rgb(70, 99, 75) } else { rgb(62, 89, 69) },
+                    Terrain::Forest => rgb(49, 83, 61),
+                    Terrain::Mountain => rgb(75, 83, 79),
+                };
+                draw_diamond(cx, cy, ISO_TILE_W * 0.5, ISO_TILE_H * 0.5, base);
+                draw_diamond_outline(cx, cy, ISO_TILE_W * 0.5, ISO_TILE_H * 0.5, 1.0, rgb(34, 56, 49));
+                if reachable.as_ref().map(|grid| grid[y][x]).unwrap_or(false) && self.unit_at(x, y).is_none() {
+                    draw_diamond(cx, cy, ISO_TILE_W * 0.46, ISO_TILE_H * 0.44, Color::new(0.25, 0.8, 0.9, 0.22));
+                    draw_diamond_outline(cx, cy, ISO_TILE_W * 0.44, ISO_TILE_H * 0.42, 1.5, rgb(117, 218, 222));
                 }
-                Terrain::Forest => self.draw_tree(px, py),
-                Terrain::Mountain => {
-                    draw_triangle(vec2(px + 11.0, py + 51.0), vec2(px + 34.0, py + 10.0), vec2(px + 57.0, py + 51.0), rgb(119, 128, 119));
-                    draw_triangle(vec2(px + 25.0, py + 28.0), vec2(px + 34.0, py + 10.0), vec2(px + 43.0, py + 28.0), rgb(207, 205, 185));
+                if let Some(site) = self.sites.iter().find(|s| s.x == x && s.y == y) { self.draw_site(cx, cy, site.owner); }
+                match self.terrain[y][x] {
+                    Terrain::Plain => {
+                        draw_line(cx - 19.0, cy + 1.0, cx - 9.0, cy + 3.0, 1.0, rgb(91, 119, 83));
+                        draw_line(cx + 11.0, cy - 5.0, cx + 20.0, cy - 3.0, 1.0, rgb(91, 119, 83));
+                    }
+                    Terrain::Forest => self.draw_tree(cx, cy),
+                    Terrain::Mountain => self.draw_mountain(cx, cy),
                 }
-            }
-            if let Some(site) = self.sites.iter().find(|s| s.x == x && s.y == y) { self.draw_site(px, py, site.owner); }
-            if reachable.as_ref().map(|grid| grid[y][x]).unwrap_or(false) && self.unit_at(x, y).is_none() {
-                draw_rectangle(px + 2.0, py + 2.0, TILE - 6.0, TILE - 6.0, Color::new(0.25, 0.8, 0.9, 0.20));
-                draw_rectangle_lines(px + 4.0, py + 4.0, TILE - 10.0, TILE - 10.0, 1.0, rgb(117, 218, 222));
-            }
-            if let Some(u) = self.unit_at(x, y) { self.draw_unit(px, py, u); }
-            if let Some(id) = self.selected {
-                if self.units.iter().any(|u| u.id == id && u.x == x && u.y == y) {
-                    draw_rectangle_lines(px + 2.0, py + 2.0, TILE - 6.0, TILE - 6.0, 3.0, rgb(242, 207, 107));
+                if let Some(u) = self.unit_at(x, y) { self.draw_unit(cx, cy, u); }
+                if self.selected.and_then(|id| self.units.iter().find(|u| u.id == id)).is_some_and(|u| u.x == x && u.y == y) {
+                    let pulse = 2.0 + (get_time() as f32 * 4.0).sin().abs() * 1.5;
+                    draw_diamond_outline(cx, cy, ISO_TILE_W * 0.47, ISO_TILE_H * 0.46, pulse, rgb(242, 207, 107));
                 }
-            }
-        }}
-        draw_text("NORTH SECTOR // 10 × 8 GRID", BOARD_X, BOARD_Y - 18.0, 13.0, rgb(128, 149, 151));
-        draw_text("FOREST: COVER + SLOW  /  MOUNTAIN: IMPASSABLE  /  INFANTRY CAPTURES SITES", BOARD_X, BOARD_Y + MAP_H as f32 * TILE + 27.0, 12.0, rgb(130, 148, 145));
+            }}
+        }
+        draw_text("FOREST: COVER + SLOW   /   MOUNTAIN: BLOCKED   /   INFANTRY CAPTURES SITES", 38.0, 633.0, 11.0, rgb(130, 148, 145));
     }
 
-    fn draw_tree(&self, x: f32, y: f32) {
-        draw_rectangle(x + 29.0, y + 33.0, 6.0, 18.0, rgb(116, 82, 54));
-        draw_triangle(vec2(x + 12.0, y + 40.0), vec2(x + 32.0, y + 8.0), vec2(x + 52.0, y + 40.0), rgb(77, 119, 77));
-        draw_triangle(vec2(x + 16.0, y + 31.0), vec2(x + 32.0, y + 4.0), vec2(x + 48.0, y + 31.0), rgb(91, 139, 85));
+    fn draw_tree(&self, cx: f32, cy: f32) {
+        draw_diamond(cx, cy + 2.0, 13.0, 6.0, rgb(39, 62, 48));
+        draw_rectangle(cx - 2.0, cy - 17.0, 4.0, 20.0, rgb(116, 82, 54));
+        draw_triangle(vec2(cx - 17.0, cy - 12.0), vec2(cx, cy - 44.0), vec2(cx + 17.0, cy - 12.0), rgb(62, 105, 67));
+        draw_triangle(vec2(cx - 14.0, cy - 22.0), vec2(cx, cy - 49.0), vec2(cx + 14.0, cy - 22.0), rgb(91, 139, 85));
+        draw_triangle(vec2(cx - 8.0, cy - 32.0), vec2(cx, cy - 51.0), vec2(cx + 8.0, cy - 32.0), rgb(124, 164, 100));
     }
 
-    fn draw_site(&self, x: f32, y: f32, owner: Option<u8>) {
+    fn draw_mountain(&self, cx: f32, cy: f32) {
+        let left = vec2(cx - 22.0, cy);
+        let back = vec2(cx, cy - 12.0);
+        let right = vec2(cx + 22.0, cy);
+        let front = vec2(cx, cy + 12.0);
+        let peak = vec2(cx + 1.0, cy - 37.0);
+        draw_triangle(peak, left, front, rgb(91, 101, 98));
+        draw_triangle(peak, front, right, rgb(126, 135, 124));
+        draw_triangle(peak, back, right, rgb(160, 163, 145));
+        draw_triangle(vec2(cx - 5.0, cy - 27.0), vec2(cx + 1.0, cy - 37.0), vec2(cx + 8.0, cy - 25.0), rgb(222, 220, 193));
+    }
+
+    fn draw_site(&self, cx: f32, cy: f32, owner: Option<u8>) {
         let col = match owner { Some(HUMAN) => rgb(71, 183, 204), Some(BOTS) => rgb(213, 87, 60), _ => rgb(232, 189, 94) };
-        draw_rectangle(x + 13.0, y + 17.0, 38.0, 32.0, rgb(26, 37, 42));
-        draw_rectangle(x + 18.0, y + 24.0, 28.0, 25.0, col);
-        draw_rectangle(x + 23.0, y + 18.0, 18.0, 9.0, col);
-        draw_rectangle(x + 27.0, y + 11.0, 3.0, 16.0, rgb(228, 224, 205));
-        draw_rectangle(x + 30.0, y + 12.0, 13.0, 7.0, col);
-        draw_rectangle(x + 23.0, y + 30.0, 5.0, 7.0, rgb(27, 41, 43));
-        draw_rectangle(x + 35.0, y + 30.0, 5.0, 7.0, rgb(27, 41, 43));
+        draw_diamond(cx, cy + 2.0, 20.0, 9.0, rgb(35, 47, 48));
+        draw_rectangle(cx - 13.0, cy - 15.0, 26.0, 18.0, col);
+        draw_triangle(vec2(cx - 16.0, cy - 15.0), vec2(cx, cy - 25.0), vec2(cx + 16.0, cy - 15.0), rgb(211, 201, 168));
+        draw_rectangle(cx - 4.0, cy - 8.0, 8.0, 11.0, rgb(32, 45, 48));
+        draw_rectangle(cx + 9.0, cy - 30.0, 2.0, 20.0, rgb(229, 224, 204));
+        draw_triangle(vec2(cx + 11.0, cy - 29.0), vec2(cx + 24.0, cy - 26.0), vec2(cx + 11.0, cy - 20.0), col);
     }
 
-    fn draw_unit(&self, x: f32, y: f32, u: &Unit) {
+    fn draw_unit(&self, cx: f32, cy: f32, u: &Unit) {
         let team = if u.team == HUMAN { rgb(67, 184, 208) } else { rgb(207, 82, 58) };
         let dark = if u.team == HUMAN { rgb(26, 101, 124) } else { rgb(104, 43, 40) };
-        draw_ellipse(x + 32.0, y + 49.0, 22.0, 7.0, 0.0, Color::new(0.0, 0.0, 0.0, 0.28));
+        draw_ellipse(cx, cy + 2.0, 29.0, 12.0, 0.0, Color::new(0.0, 0.0, 0.0, 0.28));
         match u.kind {
             Kind::Infantry => {
-                draw_circle(x + 32.0, y + 22.0, 7.0, rgb(220, 193, 151));
-                draw_rectangle(x + 24.0, y + 30.0, 16.0, 16.0, team);
-                draw_rectangle(x + 21.0, y + 35.0, 5.0, 13.0, dark);
-                draw_rectangle(x + 30.0, y + 45.0, 5.0, 8.0, rgb(35, 42, 42));
-                draw_rectangle(x + 39.0, y + 45.0, 5.0, 8.0, rgb(35, 42, 42));
-                draw_rectangle(x + 37.0, y + 31.0, 15.0, 3.0, rgb(67, 76, 74));
+                draw_circle(cx, cy - 28.0, 6.5, rgb(220, 193, 151));
+                draw_rectangle(cx - 8.0, cy - 22.0, 16.0, 18.0, team);
+                draw_rectangle(cx - 10.0, cy - 19.0, 4.0, 12.0, dark);
+                draw_rectangle(cx - 6.0, cy - 5.0, 5.0, 9.0, rgb(35, 42, 42));
+                draw_rectangle(cx + 2.0, cy - 5.0, 5.0, 9.0, rgb(35, 42, 42));
+                draw_line(cx + 3.0, cy - 15.0, cx + 15.0, cy - 11.0, 3.0, rgb(67, 76, 74));
             }
             Kind::Tank => {
-                draw_rectangle(x + 11.0, y + 37.0, 42.0, 14.0, dark);
-                draw_rectangle(x + 15.0, y + 27.0, 34.0, 17.0, team);
-                draw_rectangle(x + 22.0, y + 22.0, 17.0, 9.0, rgb(183, 193, 166));
-                draw_rectangle(x + 36.0, y + 25.0, 22.0, 5.0, rgb(45, 57, 59));
-                for wx in [18.0, 29.0, 40.0] { draw_circle(x + wx, y + 45.0, 3.0, rgb(177, 179, 159)); }
+                draw_diamond(cx, cy - 7.0, 25.0, 10.0, dark);
+                draw_diamond(cx, cy - 16.0, 21.0, 10.0, team);
+                draw_diamond(cx - 2.0, cy - 21.0, 11.0, 6.0, rgb(183, 193, 166));
+                draw_line(cx + 3.0, cy - 22.0, cx + 24.0, cy - 29.0, 4.0, rgb(45, 57, 59));
+                for (wx, wy) in [(-14.0, -7.0), (0.0, -2.0), (14.0, -7.0)] { draw_circle(cx + wx, cy + wy, 2.5, rgb(177, 179, 159)); }
             }
             Kind::Artillery => {
-                draw_rectangle(x + 12.0, y + 39.0, 39.0, 10.0, dark);
-                draw_rectangle(x + 20.0, y + 31.0, 22.0, 13.0, team);
-                draw_line(x + 31.0, y + 35.0, x + 48.0, y + 20.0, 5.0, rgb(191, 193, 169));
-                draw_circle(x + 27.0, y + 43.0, 4.0, rgb(179, 180, 159));
-                draw_circle(x + 39.0, y + 43.0, 4.0, rgb(179, 180, 159));
+                draw_diamond(cx, cy - 6.0, 23.0, 9.0, dark);
+                draw_diamond(cx, cy - 13.0, 17.0, 8.0, team);
+                draw_circle(cx - 2.0, cy - 17.0, 6.0, rgb(183, 193, 166));
+                draw_line(cx + 1.0, cy - 18.0, cx + 23.0, cy - 31.0, 4.0, rgb(191, 193, 169));
+                draw_circle(cx - 13.0, cy - 5.0, 3.0, rgb(179, 180, 159));
+                draw_circle(cx + 13.0, cy - 5.0, 3.0, rgb(179, 180, 159));
             }
         }
         let badge = if u.team == HUMAN { "H" } else { "B" };
-        draw_rectangle(x + 4.0, y + 4.0, 18.0, 16.0, dark);
-        draw_text(badge, x + 8.0, y + 17.0, 13.0, WHITE);
-        draw_rectangle(x + 26.0, y + 55.0, 28.0, 5.0, rgb(29, 38, 39));
-        draw_rectangle(x + 26.0, y + 55.0, 28.0 * u.hp.max(0) as f32 / 10.0, 5.0, if u.hp > 5 { rgb(124, 203, 142) } else { rgb(233, 139, 91) });
-        if u.acted { draw_rectangle(x + 2.0, y + 2.0, TILE - 6.0, TILE - 6.0, Color::new(0.03, 0.05, 0.07, 0.27)); }
+        draw_rectangle(cx - 25.0, cy - 43.0, 19.0, 15.0, dark);
+        draw_text(badge, cx - 21.0, cy - 31.0, 12.0, WHITE);
+        draw_text(&format!("{}", u.id), cx - 3.0, cy - 31.0, 11.0, rgb(232, 227, 208));
+        draw_rectangle(cx - 14.0, cy + 8.0, 28.0, 4.0, rgb(29, 38, 39));
+        draw_rectangle(cx - 14.0, cy + 8.0, 28.0 * u.hp.max(0) as f32 / 10.0, 4.0, if u.hp > 5 { rgb(124, 203, 142) } else { rgb(233, 139, 91) });
+        if u.acted { draw_diamond(cx, cy, ISO_TILE_W * 0.46, ISO_TILE_H * 0.42, Color::new(0.03, 0.05, 0.07, 0.32)); }
     }
 
     fn draw_panel(&self) {
@@ -400,6 +415,44 @@ impl Game {
 fn can_attack(kind: Kind, ax: usize, ay: usize, tx: usize, ty: usize) -> bool {
     let d = manhattan(ax, ay, tx, ty);
     match kind { Kind::Artillery => (2..=3).contains(&d), _ => d == 1 }
+}
+
+fn tile_center(x: usize, y: usize) -> (f32, f32) {
+    let diagonal_x = x as f32 - y as f32 - (MAP_W as f32 - MAP_H as f32) * 0.5;
+    let diagonal_y = x as f32 + y as f32 - (MAP_W as f32 + MAP_H as f32 - 2.0) * 0.5;
+    (ISO_CENTER_X + diagonal_x * ISO_TILE_W * 0.5, ISO_CENTER_Y + diagonal_y * ISO_TILE_H * 0.5)
+}
+
+fn tile_from_screen(px: f32, py: f32) -> Option<(usize, usize)> {
+    let diagonal_x = (px - ISO_CENTER_X) / (ISO_TILE_W * 0.5) + (MAP_W as f32 - MAP_H as f32) * 0.5;
+    let diagonal_y = (py - ISO_CENTER_Y) / (ISO_TILE_H * 0.5) + (MAP_W as f32 + MAP_H as f32 - 2.0) * 0.5;
+    let x = ((diagonal_x + diagonal_y) * 0.5).round() as isize;
+    let y = ((diagonal_y - diagonal_x) * 0.5).round() as isize;
+    if x < 0 || y < 0 || x >= MAP_W as isize || y >= MAP_H as isize { return None; }
+    let (cx, cy) = tile_center(x as usize, y as usize);
+    let local_x = (px - cx).abs() / (ISO_TILE_W * 0.5);
+    let local_y = (py - cy).abs() / (ISO_TILE_H * 0.5);
+    if local_x + local_y <= 1.0 { Some((x as usize, y as usize)) } else { None }
+}
+
+fn draw_diamond(cx: f32, cy: f32, rx: f32, ry: f32, color: Color) {
+    let top = vec2(cx, cy - ry);
+    let right = vec2(cx + rx, cy);
+    let bottom = vec2(cx, cy + ry);
+    let left = vec2(cx - rx, cy);
+    draw_triangle(top, right, bottom, color);
+    draw_triangle(top, bottom, left, color);
+}
+
+fn draw_diamond_outline(cx: f32, cy: f32, rx: f32, ry: f32, thickness: f32, color: Color) {
+    let top = vec2(cx, cy - ry);
+    let right = vec2(cx + rx, cy);
+    let bottom = vec2(cx, cy + ry);
+    let left = vec2(cx - rx, cy);
+    draw_line(top.x, top.y, right.x, right.y, thickness, color);
+    draw_line(right.x, right.y, bottom.x, bottom.y, thickness, color);
+    draw_line(bottom.x, bottom.y, left.x, left.y, thickness, color);
+    draw_line(left.x, left.y, top.x, top.y, thickness, color);
 }
 
 fn damage(attacker: Kind, defender: Kind) -> i32 {
