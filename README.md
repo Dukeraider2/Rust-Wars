@@ -33,7 +33,7 @@ Coordinates are shown on the map, with `(0, 0)` at the top left. Forests slow mo
 | `.` | Plains |
 | `♣` | Forest |
 | `▲` | Mountain |
-| `H` / `h` | Human infantry / armor |
-| `B` / `b` | Bot infantry / armor |
+| `H` / `T` / `A` | Human infantry / armor / artillery |
+| `b` / `t` / `a` | Bot infantry / armor / artillery |
 | `⌂` | Neutral command site |
-| `⌂H` / `⌂B` | Human / bot command site |
+| Cyan / red `⌂` | Human / bot command site |
