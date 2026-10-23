@@ -1,0 +1,19 @@
+name: Windows demo build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows-demo:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release demo
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-wars-windows-demo
+          path: target/release/rust-wars.exe
+          if-no-files-found: error
