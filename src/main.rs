@@ -1,4 +1,5 @@
-use macroquad::prelude::*;
+use macroquad::{audio, audio::{PlaySoundParams, Sound}, prelude::*};
+use std::f32::consts::PI;
 
 const MAP_W: usize = 10;
 const MAP_H: usize = 8;
@@ -36,6 +37,7 @@ struct Game {
     round: usize,
     over: Option<u8>,
     log: Vec<String>,
+    music_on: bool,
 }
 
 impl Game {
@@ -60,10 +62,12 @@ impl Game {
         Self {
             terrain, units, sites, selected: None, round: 1, over: None,
             log: vec!["FRONTIER 09 // capture three command sites".to_string(), "Select a unit, then click a highlighted tile.".to_string()],
+            music_on: true,
         }
     }
 
     fn update(&mut self) {
+        if is_key_pressed(KeyCode::M) { self.music_on = !self.music_on; }
         if self.over.is_some() {
             if is_key_pressed(KeyCode::Enter) || is_mouse_button_pressed(MouseButton::Left) { *self = Self::new(); }
             return;
@@ -249,6 +253,7 @@ impl Game {
         draw_text(&format!("HUMAN {} / 3", human), 900.0, 48.0, 18.0, rgb(94, 200, 222));
         draw_text(&format!("BOTS {} / 3", bot), 1070.0, 48.0, 18.0, rgb(218, 103, 71));
         draw_text("CAPTURE 3 COMMAND SITES OR ELIMINATE THE ENEMY", 755.0, 78.0, 13.0, rgb(137, 151, 154));
+        draw_text(if self.music_on { "MUSIC ON  [M]" } else { "MUSIC OFF [M]" }, 1110.0, 25.0, 12.0, if self.music_on { rgb(123, 210, 153) } else { rgb(145, 151, 148) });
     }
 
     fn draw_board(&self) {
@@ -372,7 +377,7 @@ impl Game {
         for (i, line) in self.log.iter().rev().take(4).enumerate() {
             draw_text(line, x + 22.0, 555.0 + i as f32 * 21.0, 12.0, if i == 0 { rgb(220, 192, 138) } else { rgb(143, 162, 160) });
         }
-        draw_text("CLICK TILE: MOVE / ATTACK     ESC: DESELECT", x + 22.0, 658.0, 10.0, rgb(104, 126, 130));
+        draw_text("CLICK TILE: MOVE / ATTACK     ESC: DESELECT     M: MUSIC", x + 22.0, 658.0, 10.0, rgb(104, 126, 130));
         let button = Rect::new(1020.0, 710.0, 212.0, 48.0);
         let hovered = button.contains(vec2(mouse_position().0, mouse_position().1));
         draw_rectangle(button.x, button.y, button.w, button.h, if hovered { rgb(223, 111, 66) } else { rgb(195, 86, 53) });
@@ -419,11 +424,85 @@ fn window_conf() -> Conf {
     Conf { window_title: "RUST // WARS — Frontier 09".to_string(), window_width: 1280, window_height: 800, window_resizable: false, ..Default::default() }
 }
 
+fn build_frontier_theme() -> Vec<u8> {
+    const RATE: u32 = 22_050;
+    const BPM: f32 = 108.0;
+    const BEAT: f32 = 60.0 / BPM;
+    const BEATS: usize = 16;
+    const SAMPLES: usize = (RATE as f32 * BEAT * BEATS as f32) as usize;
+    const MELODY: [i16; 32] = [
+        62, 69, 74, 69, 65, 69, 72, 74, 67, 74, 79, 74, 72, 69, 67, 65,
+        62, 69, 74, 77, 76, 74, 72, 69, 65, 69, 72, 76, 74, 72, 69, 65,
+    ];
+    const BASS: [i16; 4] = [38, 34, 36, 33];
+    let mut pcm = Vec::with_capacity(SAMPLES * 2);
+    for n in 0..SAMPLES {
+        let t = n as f32 / RATE as f32;
+        let eighth = BEAT * 0.5;
+        let slot = ((t / eighth) as usize) % MELODY.len();
+        let slot_time = t % eighth;
+        let midi = MELODY[slot];
+        let lead = if midi == 0 { 0.0 } else {
+            let hz = 440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0);
+            let phase = (t * hz).fract();
+            let gate = if slot_time > eighth * 0.82 { 0.0 } else { 1.0 };
+            let attack = (slot_time / 0.012).min(1.0);
+            let release = ((eighth - slot_time) / 0.025).min(1.0);
+            (if phase < 0.46 { 1.0 } else { -1.0 }) * gate * attack * release * 0.16
+        };
+
+        let beat_index = (t / BEAT) as usize;
+        let bar = (beat_index / 4) % BASS.len();
+        let bass_note = BASS[bar] + if beat_index % 4 == 2 { 7 } else { 0 };
+        let bass_hz = 440.0 * 2.0_f32.powf((bass_note as f32 - 69.0) / 12.0);
+        let bass_phase = (t * bass_hz).fract();
+        let bass_wave = 1.0 - 4.0 * (bass_phase - 0.5).abs();
+        let bass = bass_wave * 0.20;
+
+        let beat_time = t % BEAT;
+        let kick = if beat_index % 4 == 0 && beat_time < 0.16 {
+            (2.0 * PI * (58.0 + 95.0 * (1.0 - beat_time / 0.16)) * beat_time).sin()
+                * (1.0 - beat_time / 0.16) * 0.22
+        } else { 0.0 };
+        let snare = if beat_index % 4 == 2 && beat_time < 0.08 {
+            let noise = (((n as u32).wrapping_mul(1_664_525).wrapping_add(1_013_904_223) >> 16) as i16) as f32 / 32_768.0;
+            noise * (1.0 - beat_time / 0.08) * 0.08
+        } else { 0.0 };
+        let sample = (lead + bass + kick + snare).clamp(-0.92, 0.92);
+        pcm.extend_from_slice(&((sample * i16::MAX as f32) as i16).to_le_bytes());
+    }
+
+    let data_len = pcm.len() as u32;
+    let mut wav = Vec::with_capacity(44 + pcm.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&RATE.to_le_bytes());
+    wav.extend_from_slice(&(RATE * 2).to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    wav.extend_from_slice(&pcm);
+    wav
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     let mut game = Game::new();
+    let music_data = build_frontier_theme();
+    let music: Sound = audio::load_sound_from_bytes(&music_data).await.expect("built-in theme is a valid WAV");
+    audio::play_sound(&music, PlaySoundParams { looped: true, volume: 0.24 });
+    let mut last_music_on = game.music_on;
     loop {
         game.update();
+        if game.music_on != last_music_on {
+            audio::set_sound_volume(&music, if game.music_on { 0.24 } else { 0.0 });
+            last_music_on = game.music_on;
+        }
         game.draw();
         next_frame().await;
     }

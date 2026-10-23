@@ -18,6 +18,7 @@ cargo run --release
 - Infantry captures a command site by moving onto it.
 - Click **End Turn** or press `E` to let the war bots act.
 - Press `Esc` or right-click to clear selection.
+- Press `M` to mute or restore the looping chiptune battle theme.
 - Capture three of four command sites or eliminate the enemy army to win.
 - Click or press `Enter` after the battle to redeploy.
 
