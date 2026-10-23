@@ -1,0 +1,14 @@
+name: Rust compile check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cargo-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check all Rust targets
+        run: cargo check --all-targets
