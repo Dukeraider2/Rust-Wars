@@ -1,39 +1,32 @@
-# Rust Wars
+# Rust Wars // Frontier 09
 
-A small, dependency-free Rust tactics demo inspired by 16-bit turn-based strategy games. Human forces and AI war bots fight over a frontier map. Capture three command sites to win, or destroy every enemy unit.
+Rust Wars is a playable graphical battle slice for the demo: a compact, turn-based fight between human forces and AI war bots over a hand-built frontier map. The look is built from code-drawn pixel-style terrain and units, so the project needs no external art assets.
 
 ## Run
 
-Install Rust with [rustup](https://rustup.rs/), then run:
+Install Rust with rustup, then launch the game:
 
 ```sh
 cargo run --release
 ```
 
-## Play
+## Battle controls
 
-Select one of your units by its ID, then move or attack. Each unit gets one action per round. Infantry can seize a command site by moving onto it.
+- Click a human unit to select it.
+- Click a highlighted tile to move. Forests cost extra movement; mountains block movement.
+- Click an enemy in range to attack. Infantry and armor attack adjacent tiles. Artillery attacks at range 2–3.
+- Infantry captures a command site by moving onto it.
+- Click **End Turn** or press `E` to let the war bots act.
+- Press `Esc` or right-click to clear selection.
+- Capture three of four command sites or eliminate the enemy army to win.
+- Click or press `Enter` after the battle to redeploy.
 
-```text
-units                  list units and IDs
-select <id>            select a human unit (example: select 1)
-move <x> <y>           move the selected unit (example: move 4 3)
-attack <x> <y>         attack a target in range
-end                    end your turn; the war bots act
-help                   show commands
-quit                   quit the demo
-```
+## Units
 
-Coordinates are shown on the map, with `(0, 0)` at the top left. Forests slow movement and protect units. Mountains block movement. Artillery can fire from range but cannot shoot adjacent targets.
+| Unit | Movement | Weapon |
+| --- | ---: | --- |
+| Infantry | 3 | Adjacent; captures sites |
+| Armor | 4 | Adjacent; strong against infantry |
+| Artillery | 3 | Range 2–3; cannot fire adjacent |
 
-## Map legend
-
-| Mark | Meaning |
-| --- | --- |
-| `.` | Plains |
-| `♣` | Forest |
-| `▲` | Mountain |
-| `H` / `T` / `A` | Human infantry / armor / artillery |
-| `b` / `t` / `a` | Bot infantry / armor / artillery |
-| `⌂` | Neutral command site |
-| Cyan / red `⌂` | Human / bot command site |
+The battle slice uses [Macroquad](https://macroquad.rs/) for cross-platform 2D rendering.
