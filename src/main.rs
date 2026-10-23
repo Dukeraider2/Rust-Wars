@@ -312,10 +312,10 @@ impl Game {
         if self.log.len() > 5 { self.log.remove(0); }
     }
 
-    fn draw(&self) {
+    fn draw(&self, unit_atlas: &Texture2D) {
         clear_background(rgb(11, 17, 24));
         self.draw_header();
-        self.draw_board();
+        self.draw_board(unit_atlas);
         self.draw_panel();
         if let Some(winner) = self.over { self.draw_result(winner); }
     }
@@ -343,23 +343,28 @@ impl Game {
         draw_text(&format!("{}     |     {}", order, target), VIEW_LEFT + 12.0, 138.0, 12.0, rgb(205, 216, 203));
     }
 
-    fn draw_board(&self) {
+    fn draw_board(&self, unit_atlas: &Texture2D) {
         let unit_index = self.selected.and_then(|id| self.units.iter().position(|u| u.id == id));
         let reachable = unit_index.map(|i| self.reachable(i));
         draw_rectangle(VIEW_LEFT, VIEW_TOP, VIEW_RIGHT - VIEW_LEFT, VIEW_BOTTOM - VIEW_TOP, rgb(17, 28, 34));
-        draw_text("NORTH SECTOR // 16 × 12 ISO GRID", 38.0, 174.0, 13.0, rgb(128, 149, 151));
+        draw_text("NORTH SECTOR // 16 Ã— 12 ISO GRID", 38.0, 174.0, 13.0, rgb(128, 149, 151));
         for sum in 0..MAP_W + MAP_H - 1 {
             for y in 0..MAP_H { for x in 0..MAP_W {
                 if x + y != sum { continue; }
                 let (cx, cy) = tile_center(x, y, self.camera);
                 if cx < VIEW_LEFT - 32.0 || cx > VIEW_RIGHT + 32.0 || cy < VIEW_TOP + 48.0 || cy > VIEW_BOTTOM - 12.0 { continue; }
                 let base = match self.terrain[y][x] {
-                    Terrain::Plain => if (x + y) % 2 == 0 { rgb(70, 99, 75) } else { rgb(62, 89, 69) },
-                    Terrain::Forest => rgb(49, 83, 61),
-                    Terrain::Mountain => rgb(75, 83, 79),
+                    Terrain::Plain => if (x + y) % 2 == 0 { rgb(76, 88, 65) } else { rgb(67, 79, 59) },
+                    Terrain::Forest => rgb(48, 75, 55),
+                    Terrain::Mountain => rgb(77, 84, 80),
                 };
                 draw_diamond(cx, cy, ISO_TILE_W * 0.5, ISO_TILE_H * 0.5, base);
-                draw_diamond_outline(cx, cy, ISO_TILE_W * 0.5, ISO_TILE_H * 0.5, 1.0, rgb(34, 56, 49));
+                // Panel seams and scattered flecks give the ground a built-up RTS battlefield feel.
+                draw_line(cx - 15.0, cy - 7.0, cx, cy, 1.0, Color::new(0.76, 0.78, 0.66, 0.13));
+                if (x * 7 + y * 11) % 5 == 0 {
+                    draw_circle(cx + ((x * 13 + y * 3) % 19) as f32 - 9.0, cy + ((x * 5 + y * 7) % 7) as f32 - 3.0, 1.3, Color::new(0.79, 0.74, 0.57, 0.32));
+                }
+                draw_diamond_outline(cx, cy, ISO_TILE_W * 0.5, ISO_TILE_H * 0.5, 1.0, rgb(38, 52, 45));
                 if reachable.as_ref().map(|grid| grid[y][x]).unwrap_or(false) && self.unit_at(x, y).is_none() {
                     draw_diamond(cx, cy, ISO_TILE_W * 0.46, ISO_TILE_H * 0.44, Color::new(0.25, 0.8, 0.9, 0.22));
                     draw_diamond_outline(cx, cy, ISO_TILE_W * 0.44, ISO_TILE_H * 0.42, 1.5, rgb(117, 218, 222));
@@ -373,7 +378,7 @@ impl Game {
                     Terrain::Forest => self.draw_tree(cx, cy),
                     Terrain::Mountain => self.draw_mountain(cx, cy),
                 }
-                if let Some(u) = self.unit_at(x, y) { self.draw_unit(cx, cy, u); }
+                if let Some(u) = self.unit_at(x, y) { self.draw_unit(cx, cy, u, unit_atlas); }
                 if self.selected.and_then(|id| self.units.iter().find(|u| u.id == id)).is_some_and(|u| u.x == x && u.y == y) {
                     let pulse = 2.0 + (get_time() as f32 * 4.0).sin().abs() * 1.5;
                     draw_diamond_outline(cx, cy, ISO_TILE_W * 0.47, ISO_TILE_H * 0.46, pulse, rgb(242, 207, 107));
@@ -417,35 +422,16 @@ impl Game {
         draw_triangle(vec2(cx + 11.0, cy - 29.0), vec2(cx + 24.0, cy - 26.0), vec2(cx + 11.0, cy - 20.0), col);
     }
 
-    fn draw_unit(&self, cx: f32, cy: f32, u: &Unit) {
-        let team = if u.team == HUMAN { rgb(67, 184, 208) } else { rgb(207, 82, 58) };
+    fn draw_unit(&self, cx: f32, cy: f32, u: &Unit, unit_atlas: &Texture2D) {
         let dark = if u.team == HUMAN { rgb(26, 101, 124) } else { rgb(104, 43, 40) };
         draw_ellipse(cx, cy + 2.0, 29.0, 12.0, 0.0, Color::new(0.0, 0.0, 0.0, 0.28));
-        match u.kind {
-            Kind::Infantry => {
-                draw_circle(cx, cy - 28.0, 6.5, rgb(220, 193, 151));
-                draw_rectangle(cx - 8.0, cy - 22.0, 16.0, 18.0, team);
-                draw_rectangle(cx - 10.0, cy - 19.0, 4.0, 12.0, dark);
-                draw_rectangle(cx - 6.0, cy - 5.0, 5.0, 9.0, rgb(35, 42, 42));
-                draw_rectangle(cx + 2.0, cy - 5.0, 5.0, 9.0, rgb(35, 42, 42));
-                draw_line(cx + 3.0, cy - 15.0, cx + 15.0, cy - 11.0, 3.0, rgb(67, 76, 74));
-            }
-            Kind::Tank => {
-                draw_diamond(cx, cy - 7.0, 25.0, 10.0, dark);
-                draw_diamond(cx, cy - 16.0, 21.0, 10.0, team);
-                draw_diamond(cx - 2.0, cy - 21.0, 11.0, 6.0, rgb(183, 193, 166));
-                draw_line(cx + 3.0, cy - 22.0, cx + 24.0, cy - 29.0, 4.0, rgb(45, 57, 59));
-                for (wx, wy) in [(-14.0, -7.0), (0.0, -2.0), (14.0, -7.0)] { draw_circle(cx + wx, cy + wy, 2.5, rgb(177, 179, 159)); }
-            }
-            Kind::Artillery => {
-                draw_diamond(cx, cy - 6.0, 23.0, 9.0, dark);
-                draw_diamond(cx, cy - 13.0, 17.0, 8.0, team);
-                draw_circle(cx - 2.0, cy - 17.0, 6.0, rgb(183, 193, 166));
-                draw_line(cx + 1.0, cy - 18.0, cx + 23.0, cy - 31.0, 4.0, rgb(191, 193, 169));
-                draw_circle(cx - 13.0, cy - 5.0, 3.0, rgb(179, 180, 159));
-                draw_circle(cx + 13.0, cy - 5.0, 3.0, rgb(179, 180, 159));
-            }
-        }
+        let col = match u.kind { Kind::Infantry => 0.0, Kind::Tank => 64.0, Kind::Artillery => 128.0 };
+        let row = if u.team == HUMAN { 0.0 } else { 64.0 };
+        draw_texture_ex(unit_atlas, cx - 40.0, cy - 75.0, WHITE, DrawTextureParams {
+            dest_size: Some(vec2(80.0, 80.0)),
+            source: Some(Rect::new(col, row, 64.0, 64.0)),
+            ..Default::default()
+        });
         let badge = if u.team == HUMAN { "H" } else { "B" };
         draw_rectangle(cx - 25.0, cy - 43.0, 19.0, 15.0, dark);
         draw_text(badge, cx - 21.0, cy - 31.0, 12.0, WHITE);
@@ -476,7 +462,7 @@ impl Game {
         draw_text("FIELD ORDERS  //  SELECT A BOT TO LOCK TARGET", x + 22.0, 407.0, 12.0, rgb(110, 145, 156));
         let selected = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id));
         if let Some(u) = selected {
-            let action = if u.acted { "ACTION SPENT // END TURN TO RESET" } else { match u.kind { Kind::Infantry => "MOVE 3  /  CAPTURE COMMAND SITES", Kind::Tank => "MOVE 4  /  DIRECT FIRE: 1 TILE", Kind::Artillery => "MOVE 3  /  INDIRECT FIRE: 2–3 TILES" } };
+            let action = if u.acted { "ACTION SPENT // END TURN TO RESET" } else { match u.kind { Kind::Infantry => "MOVE 3  /  CAPTURE COMMAND SITES", Kind::Tank => "MOVE 4  /  DIRECT FIRE: 1 TILE", Kind::Artillery => "MOVE 3  /  INDIRECT FIRE: 2â€“3 TILES" } };
             draw_text(&format!("ORDER // {} #{}  HP {}", kind_name(u.kind).to_uppercase(), u.id, u.hp), x + 22.0, 434.0, 16.0, rgb(232, 222, 197));
             draw_text(action, x + 22.0, 455.0, 11.0, if u.acted { rgb(219, 151, 103) } else { rgb(148, 182, 163) });
         } else {
@@ -583,8 +569,28 @@ fn manhattan(x: usize, y: usize, gx: usize, gy: usize) -> usize { x.abs_diff(gx)
 fn neighbors(x: usize, y: usize) -> [(usize, usize); 4] { [(x.saturating_sub(1), y), (x + 1, y), (x, y.saturating_sub(1)), (x, y + 1)] }
 fn rgb(r: u8, g: u8, b: u8) -> Color { Color::new(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0) }
 
+fn decode_base64(encoded: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(encoded.len() * 3 / 4);
+    let mut accumulator = 0_u32;
+    let mut bits = 0_u8;
+    for ch in encoded.bytes() {
+        let value = match ch {
+            b'A'..=b'Z' => ch - b'A', b'a'..=b'z' => ch - b'a' + 26,
+            b'0'..=b'9' => ch - b'0' + 52, b'+' => 62, b'/' => 63,
+            b'=' => break, _ => continue,
+        };
+        accumulator = (accumulator << 6) | value as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((accumulator >> bits) as u8);
+        }
+    }
+    bytes
+}
+
 fn window_conf() -> Conf {
-    Conf { window_title: "RUST // WARS — Frontier 09".to_string(), window_width: 1280, window_height: 800, window_resizable: false, ..Default::default() }
+    Conf { window_title: "RUST // WARS â€” Frontier 09".to_string(), window_width: 1280, window_height: 800, window_resizable: false, ..Default::default() }
 }
 
 fn build_frontier_theme() -> Vec<u8> {
@@ -692,6 +698,9 @@ fn wav_from_pcm(pcm: &[u8], rate: u32) -> Vec<u8> {
 #[macroquad::main(window_conf)]
 async fn main() {
     let mut game = Game::new();
+    let unit_atlas_bytes = decode_base64(include_str!("../assets/unit_atlas.png.b64"));
+    let unit_atlas = Texture2D::from_file_with_format(&unit_atlas_bytes, Some(ImageFormat::Png));
+    unit_atlas.set_filter(FilterMode::Nearest);
     let music_data = build_frontier_theme();
     let music: Sound = audio::load_sound_from_bytes(&music_data).await.expect("built-in theme is a valid WAV");
     audio::play_sound(&music, PlaySoundParams { looped: true, volume: 0.24 });
@@ -710,7 +719,8 @@ async fn main() {
             audio::set_sound_volume(&music, if game.music_on { 0.24 } else { 0.0 });
             last_music_on = game.music_on;
         }
-        game.draw();
+        game.draw(&unit_atlas);
         next_frame().await;
     }
 }
+
