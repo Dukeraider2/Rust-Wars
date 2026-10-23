@@ -1,0 +1,10 @@
+[package]
+name = "rust-wars"
+version = "0.1.0"
+edition = "2021"
+description = "A tiny 16-bit-inspired tactics demo about humans versus war bots"
+license = "MIT"
+
+[[bin]]
+name = "rust-wars"
+path = "src/main.rs"
