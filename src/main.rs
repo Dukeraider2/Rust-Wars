@@ -55,6 +55,8 @@ struct Game {
     camera: Vec2,
     last_mouse: Vec2,
     dragging: bool,
+    drag_with_left: bool,
+    pan_mode: bool,
     sfx_queue: Vec<Sfx>,
 }
 
@@ -87,6 +89,7 @@ impl Game {
             log: vec!["FRONTIER 09 // capture three command sites".to_string(), "Select a unit, then click a highlighted tile.".to_string()],
             music_on: true,
             camera: vec2(-320.0, -16.0), last_mouse: vec2(0.0, 0.0), dragging: false,
+            drag_with_left: false, pan_mode: false,
             sfx_queue: Vec::new(),
         }
     }
@@ -100,34 +103,40 @@ impl Game {
         if is_key_pressed(KeyCode::Tab) { self.cycle_target(); }
         if is_key_pressed(KeyCode::Escape) { self.selected = None; }
         if is_key_pressed(KeyCode::E) { self.end_turn(); }
+        if is_key_pressed(KeyCode::P) { self.pan_mode = !self.pan_mode; self.dragging = false; }
         if is_key_pressed(KeyCode::Home) { self.camera = vec2(-320.0, -16.0); }
         let pan_speed = 360.0 * get_frame_time();
         if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) { self.camera.x -= pan_speed; }
         if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) { self.camera.x += pan_speed; }
         if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) { self.camera.y -= pan_speed; }
         if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) { self.camera.y += pan_speed; }
-        let (wheel_x, wheel_y) = mouse_wheel();
-        let shift = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
-        if shift { self.camera.x -= wheel_y * 58.0 + wheel_x * 58.0; }
-        else { self.camera.y -= wheel_y * 48.0; self.camera.x -= wheel_x * 48.0; }
         let (mx, my) = mouse_position();
         let mouse = vec2(mx, my);
         if is_mouse_button_pressed(MouseButton::Middle) && in_map_view(mx, my) {
             self.dragging = true;
+            self.drag_with_left = false;
             self.last_mouse = mouse;
         }
-        if self.dragging && is_mouse_button_down(MouseButton::Middle) {
+        if self.pan_mode && is_mouse_button_pressed(MouseButton::Left) && in_map_view(mx, my) {
+            self.dragging = true;
+            self.drag_with_left = true;
+            self.last_mouse = mouse;
+        }
+        let pan_button_down = if self.drag_with_left { is_mouse_button_down(MouseButton::Left) } else { is_mouse_button_down(MouseButton::Middle) };
+        if self.dragging && pan_button_down {
             let delta = mouse - self.last_mouse;
             self.camera -= delta;
             self.last_mouse = mouse;
         }
-        if is_mouse_button_released(MouseButton::Middle) { self.dragging = false; }
+        if (self.drag_with_left && is_mouse_button_released(MouseButton::Left)) || (!self.drag_with_left && is_mouse_button_released(MouseButton::Middle)) { self.dragging = false; }
         self.camera.x = self.camera.x.clamp(-778.0, 788.0);
         self.camera.y = self.camera.y.clamp(-454.0, 494.0);
         if is_mouse_button_pressed(MouseButton::Left) {
             if Rect::new(1020.0, 710.0, 212.0, 48.0).contains(vec2(mx, my)) { self.end_turn(); }
-            else if let Some((x, y)) = tile_from_screen(mx, my, self.camera) { self.click_tile(x, y); }
-            else if mx < VIEW_RIGHT { self.selected = None; }
+            else if !self.pan_mode {
+                if let Some((x, y)) = tile_from_screen(mx, my, self.camera) { self.click_tile(x, y); }
+                else if mx < VIEW_RIGHT { self.selected = None; }
+            }
         }
         if is_mouse_button_pressed(MouseButton::Right) { self.selected = None; }
     }
@@ -374,7 +383,7 @@ impl Game {
                 }
             }}
         }
-        draw_text("WHEEL SCROLL   /   SHIFT+WHEEL HORIZONTAL   /   MIDDLE-DRAG   /   ARROWS PAN   /   HOME RESET", 38.0, 692.0, 10.0, rgb(130, 148, 145));
+        draw_text(if self.pan_mode { "PAN MODE ON // DRAG MAP   /   P TO EXIT   /   HOME RESET" } else { "P: PAN MODE + DRAG   /   MIDDLE-DRAG   /   ARROWS PAN   /   HOME RESET" }, 38.0, 692.0, 10.0, rgb(130, 148, 145));
         draw_text("FOREST: COVER + SLOW   /   MOUNTAIN: BLOCKED   /   INFANTRY CAPTURES SITES", 38.0, 675.0, 10.0, rgb(104, 126, 130));
     }
 

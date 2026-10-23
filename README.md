@@ -19,7 +19,7 @@ cargo run --release
 - Infantry captures a command site by moving onto it.
 - Click **End Turn** or press `E` to let the war bots act.
 - Press `Esc` or right-click to clear selection.
-- Scroll to pan vertically; `Shift` + scroll pans horizontally. Middle-drag or arrow keys also pan; press `Home` to return to deployment.
+- Press `P` to toggle pan mode, then left-drag the map. Middle-drag and arrow keys also pan; press `Home` to return to deployment.
 - Press `M` to mute or restore the looping chiptune battle theme.
 - Selection, movement, firing, impacts and captures have synthesized sound effects.
 - Capture three of four command sites or eliminate the enemy army to win.
