@@ -106,7 +106,10 @@ impl Game {
             if is_key_pressed(KeyCode::Enter) || is_mouse_button_pressed(MouseButton::Left) { *self = Self::new(); }
             return;
         }
-        if is_key_pressed(KeyCode::Tab) { self.cycle_target(); }
+        if is_key_pressed(KeyCode::Tab) {
+            let reverse = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+            self.cycle_target(reverse);
+        }
         if is_key_pressed(KeyCode::Escape) { self.selected = None; }
         if is_key_pressed(KeyCode::E) { self.end_turn(); }
         if is_key_pressed(KeyCode::P) { self.pan_mode = !self.pan_mode; self.dragging = false; }
@@ -147,15 +150,17 @@ impl Game {
         if is_mouse_button_pressed(MouseButton::Right) { self.selected = None; }
     }
 
-    fn cycle_target(&mut self) {
+    fn cycle_target(&mut self, reverse: bool) {
         let enemies: Vec<usize> = self.units.iter().filter(|u| u.team == BOTS).map(|u| u.id).collect();
         if enemies.is_empty() { self.target = None; return; }
-        let next = self.target.and_then(|id| enemies.iter().position(|candidate| *candidate == id).map(|i| (i + 1) % enemies.len())).unwrap_or(0);
+        let next = self.target.and_then(|id| enemies.iter().position(|candidate| *candidate == id).map(|i| {
+            if reverse { (i + enemies.len() - 1) % enemies.len() } else { (i + 1) % enemies.len() }
+        })).unwrap_or_else(|| if reverse { enemies.len() - 1 } else { 0 });
         self.target = Some(enemies[next]);
         if let Some(unit) = self.units.iter().find(|u| Some(u.id) == self.target).cloned() {
-            self.camera = tile_world(unit.x, unit.y);
+            self.camera = tile_world(unit.x, unit.y) - vec2(0.0, self.elevation[unit.y][unit.x] as f32 * ELEVATION_STEP);
             self.sfx_queue.push(Sfx::Select);
-            self.note(format!("TARGET LOCK // BOT {} #{} // {} HP", kind_name(unit.kind).to_uppercase(), unit.id, unit.hp));
+            self.note(format!("TARGET LOCK // BOT {} #{} // {} HP // TAB NEXT", kind_name(unit.kind).to_uppercase(), unit.id, unit.hp));
         }
     }
 
@@ -171,7 +176,13 @@ impl Game {
                 let can_fire = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id))
                     .map(|attacker| !attacker.acted && self.can_attack(attacker.kind, attacker.x, attacker.y, unit.x, unit.y)).unwrap_or(false);
                 if can_fire { if let Some(id) = self.selected { self.attack(id, unit.id); } }
-                else { self.sfx_queue.push(Sfx::Select); self.note(format!("TARGET LOCK // BOT {} #{} // TAB CYCLES ENEMIES", kind_name(unit.kind).to_uppercase(), unit.id)); }
+                else {
+                    self.sfx_queue.push(Sfx::Select);
+                    let reason = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id))
+                        .map(|attacker| if attacker.acted { "ORDER SPENT" } else if in_weapon_range(attacker.kind, attacker.x, attacker.y, unit.x, unit.y) { "FIRING LANE BLOCKED" } else { "OUT OF RANGE" })
+                        .unwrap_or("SELECT A UNIT TO AIM");
+                    self.note(format!("TARGET LOCK // BOT {} #{} // {}", kind_name(unit.kind).to_uppercase(), unit.id, reason));
+                }
             }
             return;
         }
@@ -384,6 +395,8 @@ impl Game {
 
     fn draw_board(&self, unit_atlas: &Texture2D) {
         let unit_index = self.selected.and_then(|id| self.units.iter().position(|u| u.id == id));
+        let selected_unit = unit_index.map(|i| &self.units[i]);
+        let hovered_enemy = self.hovered_enemy().map(|u| u.id);
         let reachable = unit_index.map(|i| self.reachable(i));
         draw_rectangle(VIEW_LEFT, VIEW_TOP, VIEW_RIGHT - VIEW_LEFT, VIEW_BOTTOM - VIEW_TOP, rgb(17, 28, 34));
         draw_text("NORTH SECTOR // 16 Ã— 12 ISO GRID", 38.0, 174.0, 13.0, rgb(128, 149, 151));
@@ -423,16 +436,29 @@ impl Game {
                     Terrain::Mountain => self.draw_mountain(cx, cy),
                 }
                 if let Some(u) = self.unit_at(x, y) { self.draw_unit(cx, cy, u, unit_atlas); }
+                if let Some(enemy) = self.unit_at(x, y).filter(|u| u.team == BOTS) {
+                    if let Some(attacker) = selected_unit.filter(|u| !u.acted) {
+                        if in_weapon_range(attacker.kind, attacker.x, attacker.y, enemy.x, enemy.y) {
+                            let clear_lane = self.can_attack(attacker.kind, attacker.x, attacker.y, enemy.x, enemy.y);
+                            let tint = if clear_lane { rgb(237, 100, 77) } else { rgb(230, 177, 91) };
+                            draw_diamond_outline(cx, cy, ISO_TILE_W * 0.46, ISO_TILE_H * 0.44, 2.0, tint);
+                        }
+                    }
+                    if hovered_enemy == Some(enemy.id) && self.target != Some(enemy.id) {
+                        draw_diamond_outline(cx, cy, ISO_TILE_W * 0.48, ISO_TILE_H * 0.47, 1.0, rgb(235, 232, 205));
+                    }
+                }
                 if self.selected.and_then(|id| self.units.iter().find(|u| u.id == id)).is_some_and(|u| u.x == x && u.y == y) {
                     let pulse = 2.0 + (get_time() as f32 * 4.0).sin().abs() * 1.5;
                     draw_diamond_outline(cx, cy, ISO_TILE_W * 0.47, ISO_TILE_H * 0.46, pulse, rgb(242, 207, 107));
                 }
                 if self.target.and_then(|id| self.units.iter().find(|u| u.id == id)).is_some_and(|u| u.x == x && u.y == y) {
-                    draw_diamond_outline(cx, cy, ISO_TILE_W * 0.49, ISO_TILE_H * 0.49, 2.5, rgb(242, 119, 81));
+                    let pulse = 2.0 + (get_time() as f32 * 3.5).sin().abs() * 1.5;
+                    draw_diamond_outline(cx, cy, ISO_TILE_W * 0.49, ISO_TILE_H * 0.49, pulse, rgb(242, 119, 81));
                 }
             }}
         }
-        draw_text(if self.pan_mode { "PAN MODE ON // DRAG MAP   /   P TO EXIT   /   HOME RESET" } else { "P: PAN MODE + DRAG   /   MIDDLE-DRAG   /   ARROWS PAN   /   HOME RESET" }, 38.0, 692.0, 10.0, rgb(130, 148, 145));
+        draw_text(if self.pan_mode { "PAN MODE ON // DRAG MAP   /   P TO EXIT   /   HOME RESET" } else { "P: PAN   /   MIDDLE-DRAG   /   ARROWS PAN   /   TAB NEXT TARGET   /   SHIFT+TAB PREVIOUS" }, 38.0, 692.0, 10.0, rgb(130, 148, 145));
         draw_text("FOREST: COVER + SLOW  /  HIGH GROUND: +DMG +DEF  /  CLIMB: +MOVE  /  RIDGES BLOCK FIRE", 38.0, 675.0, 10.0, rgb(104, 126, 130));
     }
 
@@ -529,12 +555,26 @@ impl Game {
             draw_text("SELECT A UNIT FOR ORDERS", x + 16.0, 435.0, 10.0, rgb(202, 213, 201));
             draw_text("INFANTRY CAPTURES SITES", x + 16.0, 455.0, 9.0, rgb(148, 182, 163));
         }
-        if let Some(id) = self.target {
-            if let Some(enemy) = self.units.iter().find(|u| u.id == id) {
-                draw_text(&format!("TARGET // BOT {} #{}  HP {} Z{}", kind_name(enemy.kind).to_uppercase(), enemy.id, enemy.hp, self.elevation[enemy.y][enemy.x]), x + 16.0, 480.0, 9.0, rgb(240, 139, 103));
-            }
+        if let Some(enemy) = self.aim_target() {
+            let locked = self.target == Some(enemy.id);
+            draw_text(&format!("{} // BOT {} #{}  HP {} Z{}", if locked { "LOCK" } else { "AIM" }, kind_name(enemy.kind).to_uppercase(), enemy.id, enemy.hp, self.elevation[enemy.y][enemy.x]), x + 16.0, 480.0, 9.0, rgb(240, 139, 103));
+            let attacker = selected;
+            let (report, color) = if let Some(attacker) = attacker {
+                if attacker.acted { ("ORDER SPENT // END TURN TO FIRE".to_string(), rgb(153, 158, 148)) }
+                else if self.can_attack(attacker.kind, attacker.x, attacker.y, enemy.x, enemy.y) {
+                    let dealt = self.attack_damage(attacker, enemy);
+                    (format!("FIRE READY // {} DMG // {} HP LEFT", dealt, (enemy.hp - dealt).max(0)), rgb(123, 210, 153))
+                } else if in_weapon_range(attacker.kind, attacker.x, attacker.y, enemy.x, enemy.y) {
+                    ("BLOCKED // NO CLEAR ARTILLERY LANE".to_string(), rgb(233, 178, 100))
+                } else if attacker.kind == Kind::Artillery {
+                    ("OUT OF RANGE // ARTILLERY: 2-3 TILES".to_string(), rgb(233, 178, 100))
+                } else {
+                    ("OUT OF RANGE // WEAPON: ADJACENT".to_string(), rgb(233, 178, 100))
+                }
+            } else { ("SELECT A HUMAN UNIT TO FIRE".to_string(), rgb(143, 162, 160)) };
+            draw_text(&report, x + 16.0, 499.0, 8.0, color);
         } else {
-            draw_text("TARGET // CLICK BOT OR PRESS TAB", x + 16.0, 480.0, 9.0, rgb(143, 162, 160));
+            draw_text("AIM // HOVER OR CLICK AN ENEMY", x + 16.0, 480.0, 9.0, rgb(143, 162, 160));
         }
         draw_text("COMMS // REPORTS", x + 16.0, 520.0, 10.0, rgb(110, 145, 156));
         for (i, line) in self.log.iter().rev().take(4).enumerate() {
@@ -558,6 +598,17 @@ impl Game {
     }
 
     fn unit_at(&self, x: usize, y: usize) -> Option<&Unit> { self.units.iter().find(|u| u.x == x && u.y == y) }
+
+    fn hovered_enemy(&self) -> Option<&Unit> {
+        let (mx, my) = mouse_position();
+        let (x, y) = tile_from_screen(mx, my, self.camera, &self.elevation)?;
+        self.unit_at(x, y).filter(|u| u.team == BOTS)
+    }
+
+    fn aim_target(&self) -> Option<&Unit> {
+        self.target.and_then(|id| self.units.iter().find(|u| u.id == id))
+            .or_else(|| self.hovered_enemy())
+    }
 }
 
 fn in_weapon_range(kind: Kind, ax: usize, ay: usize, tx: usize, ty: usize) -> bool {
