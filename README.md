@@ -1,6 +1,6 @@
 # Rust Wars // Frontier 09
 
-Rust Wars is a playable graphical battle slice for the demo: a turn-based fight between human forces and AI war bots over a pan-able 16x12 isometric frontier map. Its industrial frontier look combines textured terrain, raised forests, faceted ridges and an original pixel-art unit atlas inspired by classic sci-fi strategy games.
+Rust Wars is a playable graphical battle slice for the demo: a turn-based fight between human forces and AI war bots over a pan-able 16x12 isometric frontier map. Its industrial frontier look combines textured terrain, stepped elevation, raised forests, faceted ridges and an original pixel-art unit atlas inspired by classic sci-fi strategy games.
 
 ## Run
 
@@ -13,7 +13,8 @@ cargo run --release
 ## Battle controls
 
 - Click a human unit to select it.
-- Click a highlighted tile to move. Forests cost extra movement; mountains block movement.
+- Click a highlighted tile to move. Forests cost extra movement and grant cover; each uphill level costs extra movement, and units can climb one level per tile.
+- High ground adds attack damage and defense. Mountain ridges block movement and artillery fire; artillery needs a clear straight firing lane.
 - Click any bot to lock it as your target; press `Tab` to cycle through enemies and center the map on each one.
 - With a human unit selected, click an enemy in range to attack. Infantry and armor attack adjacent tiles. Artillery attacks at range 2â€“3.
 - Infantry captures a command site by moving onto it.
