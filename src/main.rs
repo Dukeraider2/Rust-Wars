@@ -5,6 +5,7 @@ const MAP_W: usize = 16;
 const MAP_H: usize = 12;
 const ISO_TILE_W: f32 = 64.0;
 const ISO_TILE_H: f32 = 32.0;
+const ELEVATION_STEP: f32 = 9.0;
 const VIEW_CENTER_X: f32 = 356.0;
 const VIEW_CENTER_Y: f32 = 420.0;
 const VIEW_LEFT: f32 = 20.0;
@@ -44,6 +45,7 @@ struct Site { x: usize, y: usize, owner: Option<u8> }
 
 struct Game {
     terrain: [[Terrain; MAP_W]; MAP_H],
+    elevation: [[u8; MAP_W]; MAP_H],
     units: Vec<Unit>,
     sites: Vec<Site>,
     selected: Option<usize>,
@@ -67,6 +69,10 @@ impl Game {
             terrain[y][x] = Terrain::Forest;
         }
         for (x, y) in [(5,3),(6,3),(5,4),(9,7),(10,7),(11,7),(3,9),(14,4)] { terrain[y][x] = Terrain::Mountain; }
+        let mut elevation = [[0_u8; MAP_W]; MAP_H];
+        for (x, y) in [(4,3),(5,3),(6,3),(4,4),(5,4),(6,4),(7,4),(8,4),(5,5),(6,5),(7,5),(10,6),(11,6),(12,6),(11,7),(12,7),(3,8),(4,8),(4,9),(13,5),(14,6),(13,7),(2,7),(1,9),(2,10)] { elevation[y][x] = 1; }
+        for (x, y) in [(5,3),(6,3),(5,4),(9,7),(10,7),(11,7),(3,9),(14,4)] { elevation[y][x] = 3; }
+        for (x, y) in [(8,3),(7,3),(12,5),(13,6),(2,8),(2,9)] { elevation[y][x] = 2; }
         let units = vec![
             Unit { id: 1, team: HUMAN, kind: Kind::Infantry, x: 1, y: 10, hp: 10, acted: false },
             Unit { id: 2, team: HUMAN, kind: Kind::Tank, x: 2, y: 11, hp: 10, acted: false },
@@ -85,7 +91,7 @@ impl Game {
             Site { x: 13, y: 8, owner: None },
         ];
         Self {
-            terrain, units, sites, selected: None, target: None, round: 1, over: None,
+            terrain, elevation, units, sites, selected: None, target: None, round: 1, over: None,
             log: vec!["FRONTIER 09 // capture three command sites".to_string(), "Select a unit, then click a highlighted tile.".to_string()],
             music_on: true,
             camera: vec2(-320.0, -16.0), last_mouse: vec2(0.0, 0.0), dragging: false,
@@ -134,7 +140,7 @@ impl Game {
         if is_mouse_button_pressed(MouseButton::Left) {
             if Rect::new(1020.0, 710.0, 212.0, 48.0).contains(vec2(mx, my)) { self.end_turn(); }
             else if !self.pan_mode {
-                if let Some((x, y)) = tile_from_screen(mx, my, self.camera) { self.click_tile(x, y); }
+                if let Some((x, y)) = tile_from_screen(mx, my, self.camera, &self.elevation) { self.click_tile(x, y); }
                 else if mx < VIEW_RIGHT { self.selected = None; }
             }
         }
@@ -163,7 +169,7 @@ impl Game {
             } else {
                 self.target = Some(unit.id);
                 let can_fire = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id))
-                    .map(|attacker| !attacker.acted && can_attack(attacker.kind, attacker.x, attacker.y, unit.x, unit.y)).unwrap_or(false);
+                    .map(|attacker| !attacker.acted && self.can_attack(attacker.kind, attacker.x, attacker.y, unit.x, unit.y)).unwrap_or(false);
                 if can_fire { if let Some(id) = self.selected { self.attack(id, unit.id); } }
                 else { self.sfx_queue.push(Sfx::Select); self.note(format!("TARGET LOCK // BOT {} #{} // TAB CYCLES ENEMIES", kind_name(unit.kind).to_uppercase(), unit.id)); }
             }
@@ -193,7 +199,10 @@ impl Game {
         let a = self.units[ai].clone();
         let t = self.units[ti].clone();
         if a.acted { self.note("Order already spent this round.".into()); return; }
-        if !can_attack(a.kind, a.x, a.y, t.x, t.y) { self.note("Target is outside weapon range.".into()); return; }
+        if !self.can_attack(a.kind, a.x, a.y, t.x, t.y) {
+            self.note(if a.kind == Kind::Artillery && in_weapon_range(a.kind, a.x, a.y, t.x, t.y) { "No clear artillery lane to target." } else { "Target is outside weapon range." }.into());
+            return;
+        }
         self.sfx_queue.push(Sfx::Fire);
         self.deal_damage(ai, ti);
         self.units[ai].acted = true;
@@ -204,8 +213,7 @@ impl Game {
     fn deal_damage(&mut self, ai: usize, ti: usize) {
         let attacker = self.units[ai].clone();
         let target = self.units[ti].clone();
-        let cover = if self.terrain[target.y][target.x] == Terrain::Forest { 1 } else { 0 };
-        let amount = (damage(attacker.kind, target.kind) - cover).max(1);
+        let amount = self.attack_damage(&attacker, &target);
         self.units[ti].hp -= amount;
         self.sfx_queue.push(Sfx::Impact);
         self.note(format!("{} hits {} for {} // {} HP left", kind_name(attacker.kind), kind_name(target.kind), amount, self.units[ti].hp.max(0)));
@@ -235,7 +243,10 @@ impl Game {
                 for (nx, ny) in neighbors(x, y) {
                     if nx >= MAP_W || ny >= MAP_H || self.terrain[ny][nx] == Terrain::Mountain { continue; }
                     if self.units.iter().any(|other| other.id != unit.id && other.x == nx && other.y == ny) { continue; }
-                    let cost = if self.terrain[ny][nx] == Terrain::Forest { 2 } else { 1 };
+                    let climb = self.elevation[ny][nx].saturating_sub(self.elevation[y][x]);
+                    if climb > 1 { continue; }
+                    let terrain_cost = if self.terrain[ny][nx] == Terrain::Forest { 2 } else { 1 };
+                    let cost = terrain_cost + climb as i32;
                     let next = dist[y][x] + cost;
                     if next < dist[ny][nx] && next <= allowance { dist[ny][nx] = next; changed = true; }
                 }
@@ -245,6 +256,35 @@ impl Game {
         let mut result = [[false; MAP_W]; MAP_H];
         for y in 0..MAP_H { for x in 0..MAP_W { result[y][x] = dist[y][x] <= allowance; }}
         result
+    }
+
+    fn can_attack(&self, kind: Kind, ax: usize, ay: usize, tx: usize, ty: usize) -> bool {
+        if !in_weapon_range(kind, ax, ay, tx, ty) { return false; }
+        let distance = manhattan(ax, ay, tx, ty);
+        // Artillery fires along a clear cardinal lane; intervening ridges can mask low targets.
+        if kind == Kind::Artillery {
+            if ax != tx && ay != ty { return false; }
+            for step in 1..distance {
+                let (x, y) = if ax == tx {
+                    (ax, if ty > ay { ay + step } else { ay - step })
+                } else {
+                    (if tx > ax { ax + step } else { ax - step }, ay)
+                };
+                let sight_height = self.elevation[ay][ax] as f32
+                    + (self.elevation[ty][tx] as f32 - self.elevation[ay][ax] as f32) * step as f32 / distance as f32;
+                if self.terrain[y][x] == Terrain::Mountain || self.elevation[y][x] as f32 > sight_height { return false; }
+            }
+        }
+        true
+    }
+
+    fn attack_damage(&self, attacker: &Unit, target: &Unit) -> i32 {
+        let attack_height = self.elevation[attacker.y][attacker.x];
+        let target_height = self.elevation[target.y][target.x];
+        let high_ground_bonus = i32::from(attack_height > target_height);
+        let height_cover = i32::from(target_height > attack_height);
+        let forest_cover = i32::from(self.terrain[target.y][target.x] == Terrain::Forest);
+        (damage(attacker.kind, target.kind) + high_ground_bonus - height_cover - forest_cover).max(1)
     }
 
     fn end_turn(&mut self) {
@@ -265,7 +305,7 @@ impl Game {
 
     fn bot_action(&mut self, i: usize) {
         let bot = self.units[i].clone();
-        if let Some(t) = self.units.iter().find(|u| u.team == HUMAN && can_attack(bot.kind, bot.x, bot.y, u.x, u.y)).cloned() {
+        if let Some(t) = self.units.iter().find(|u| u.team == HUMAN && self.can_attack(bot.kind, bot.x, bot.y, u.x, u.y)).cloned() {
             if let Some(ti) = self.units.iter().position(|u| u.id == t.id) { self.bot_damage(i, ti); }
             return;
         }
@@ -289,8 +329,7 @@ impl Game {
     fn bot_damage(&mut self, ai: usize, ti: usize) {
         let attacker = self.units[ai].clone();
         let target = self.units[ti].clone();
-        let cover = if self.terrain[target.y][target.x] == Terrain::Forest { 1 } else { 0 };
-        let amount = (damage(attacker.kind, target.kind) - cover).max(1);
+        let amount = self.attack_damage(&attacker, &target);
         self.units[ti].hp -= amount;
         self.sfx_queue.push(Sfx::Fire);
         self.sfx_queue.push(Sfx::Impact);
@@ -335,10 +374,10 @@ impl Game {
         draw_text(if self.music_on { "MUSIC ON  [M]" } else { "MUSIC OFF [M]" }, 1110.0, 25.0, 12.0, if self.music_on { rgb(123, 210, 153) } else { rgb(145, 151, 148) });
         draw_rectangle(VIEW_LEFT, 118.0, VIEW_RIGHT - VIEW_LEFT, 30.0, rgb(23, 36, 43));
         let order = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id))
-            .map(|u| format!("ORDER {} #{}  HP {}", kind_name(u.kind).to_uppercase(), u.id, u.hp))
+            .map(|u| format!("ORDER {} #{}  HP {}  ELEV {}", kind_name(u.kind).to_uppercase(), u.id, u.hp, self.elevation[u.y][u.x]))
             .unwrap_or_else(|| "ORDER: SELECT A HUMAN UNIT".to_string());
         let target = self.target.and_then(|id| self.units.iter().find(|u| u.id == id))
-            .map(|u| format!("TARGET BOT {} #{}  HP {}", kind_name(u.kind).to_uppercase(), u.id, u.hp))
+            .map(|u| format!("TARGET BOT {} #{}  HP {}  ELEV {}", kind_name(u.kind).to_uppercase(), u.id, u.hp, self.elevation[u.y][u.x]))
             .unwrap_or_else(|| format!("{} BOTS  //  TAB CYCLES TARGET", self.units.iter().filter(|u| u.team == BOTS).count()));
         draw_text(&format!("{}     |     {}", order, target), VIEW_LEFT + 12.0, 138.0, 12.0, rgb(205, 216, 203));
     }
@@ -351,8 +390,9 @@ impl Game {
         for sum in 0..MAP_W + MAP_H - 1 {
             for y in 0..MAP_H { for x in 0..MAP_W {
                 if x + y != sum { continue; }
-                let (cx, cy) = tile_center(x, y, self.camera);
+                let (cx, cy) = tile_center(x, y, self.camera, self.elevation[y][x]);
                 if cx < VIEW_LEFT - 32.0 || cx > VIEW_RIGHT + 32.0 || cy < VIEW_TOP + 48.0 || cy > VIEW_BOTTOM - 12.0 { continue; }
+                self.draw_elevation_faces(x, y, cx, cy);
                 let base = match self.terrain[y][x] {
                     Terrain::Plain => if (x + y) % 2 == 0 { rgb(76, 88, 65) } else { rgb(67, 79, 59) },
                     Terrain::Forest => rgb(48, 75, 55),
@@ -365,6 +405,10 @@ impl Game {
                     draw_circle(cx + ((x * 13 + y * 3) % 19) as f32 - 9.0, cy + ((x * 5 + y * 7) % 7) as f32 - 3.0, 1.3, Color::new(0.79, 0.74, 0.57, 0.32));
                 }
                 draw_diamond_outline(cx, cy, ISO_TILE_W * 0.5, ISO_TILE_H * 0.5, 1.0, rgb(38, 52, 45));
+                if self.elevation[y][x] > 0 && self.terrain[y][x] != Terrain::Mountain {
+                    draw_diamond_outline(cx, cy, 19.0, 9.5, 1.0, Color::new(0.91, 0.78, 0.46, 0.45));
+                    for level in 0..self.elevation[y][x] { draw_line(cx - 4.0 + level as f32 * 4.0, cy + 5.0, cx - 1.0 + level as f32 * 4.0, cy + 2.0, 1.0, rgb(226, 198, 126)); }
+                }
                 if reachable.as_ref().map(|grid| grid[y][x]).unwrap_or(false) && self.unit_at(x, y).is_none() {
                     draw_diamond(cx, cy, ISO_TILE_W * 0.46, ISO_TILE_H * 0.44, Color::new(0.25, 0.8, 0.9, 0.22));
                     draw_diamond_outline(cx, cy, ISO_TILE_W * 0.44, ISO_TILE_H * 0.42, 1.5, rgb(117, 218, 222));
@@ -389,7 +433,23 @@ impl Game {
             }}
         }
         draw_text(if self.pan_mode { "PAN MODE ON // DRAG MAP   /   P TO EXIT   /   HOME RESET" } else { "P: PAN MODE + DRAG   /   MIDDLE-DRAG   /   ARROWS PAN   /   HOME RESET" }, 38.0, 692.0, 10.0, rgb(130, 148, 145));
-        draw_text("FOREST: COVER + SLOW   /   MOUNTAIN: BLOCKED   /   INFANTRY CAPTURES SITES", 38.0, 675.0, 10.0, rgb(104, 126, 130));
+        draw_text("FOREST: COVER + SLOW  /  HIGH GROUND: +DMG +DEF  /  CLIMB: +MOVE  /  RIDGES BLOCK FIRE", 38.0, 675.0, 10.0, rgb(104, 126, 130));
+    }
+
+    fn draw_elevation_faces(&self, x: usize, y: usize, cx: f32, cy: f32) {
+        let height = self.elevation[y][x];
+        if height == 0 { return; }
+        let right = vec2(cx + ISO_TILE_W * 0.5, cy);
+        let bottom = vec2(cx, cy + ISO_TILE_H * 0.5);
+        let left = vec2(cx - ISO_TILE_W * 0.5, cy);
+        if x + 1 < MAP_W {
+            let drop = height.saturating_sub(self.elevation[y][x + 1]) as f32 * ELEVATION_STEP;
+            if drop > 0.0 { draw_cliff_face(right, bottom, drop, rgb(51, 57, 48), rgb(112, 95, 66)); }
+        }
+        if y + 1 < MAP_H {
+            let drop = height.saturating_sub(self.elevation[y + 1][x]) as f32 * ELEVATION_STEP;
+            if drop > 0.0 { draw_cliff_face(bottom, left, drop, rgb(42, 49, 44), rgb(84, 83, 62)); }
+        }
     }
 
     fn draw_tree(&self, cx: f32, cy: f32) {
@@ -500,7 +560,7 @@ impl Game {
     fn unit_at(&self, x: usize, y: usize) -> Option<&Unit> { self.units.iter().find(|u| u.x == x && u.y == y) }
 }
 
-fn can_attack(kind: Kind, ax: usize, ay: usize, tx: usize, ty: usize) -> bool {
+fn in_weapon_range(kind: Kind, ax: usize, ay: usize, tx: usize, ty: usize) -> bool {
     let d = manhattan(ax, ay, tx, ty);
     match kind { Kind::Artillery => (2..=3).contains(&d), _ => d == 1 }
 }
@@ -511,22 +571,23 @@ fn tile_world(x: usize, y: usize) -> Vec2 {
     vec2(diagonal_x * ISO_TILE_W * 0.5, diagonal_y * ISO_TILE_H * 0.5)
 }
 
-fn tile_center(x: usize, y: usize, camera: Vec2) -> (f32, f32) {
+fn tile_center(x: usize, y: usize, camera: Vec2, elevation: u8) -> (f32, f32) {
     let world = tile_world(x, y) - camera;
-    (VIEW_CENTER_X + world.x, VIEW_CENTER_Y + world.y)
+    (VIEW_CENTER_X + world.x, VIEW_CENTER_Y + world.y - elevation as f32 * ELEVATION_STEP)
 }
 
-fn tile_from_screen(px: f32, py: f32, camera: Vec2) -> Option<(usize, usize)> {
+fn tile_from_screen(px: f32, py: f32, camera: Vec2, elevation: &[[u8; MAP_W]; MAP_H]) -> Option<(usize, usize)> {
     if !in_map_view(px, py) { return None; }
-    let diagonal_x = (px - VIEW_CENTER_X + camera.x) / (ISO_TILE_W * 0.5) + (MAP_W as f32 - MAP_H as f32) * 0.5;
-    let diagonal_y = (py - VIEW_CENTER_Y + camera.y) / (ISO_TILE_H * 0.5) + (MAP_W as f32 + MAP_H as f32 - 2.0) * 0.5;
-    let x = ((diagonal_x + diagonal_y) * 0.5).round() as isize;
-    let y = ((diagonal_y - diagonal_x) * 0.5).round() as isize;
-    if x < 0 || y < 0 || x >= MAP_W as isize || y >= MAP_H as isize { return None; }
-    let (cx, cy) = tile_center(x as usize, y as usize, camera);
-    let local_x = (px - cx).abs() / (ISO_TILE_W * 0.5);
-    let local_y = (py - cy).abs() / (ISO_TILE_H * 0.5);
-    if local_x + local_y <= 1.0 { Some((x as usize, y as usize)) } else { None }
+    let mut closest: Option<(f32, usize, usize)> = None;
+    for y in 0..MAP_H { for x in 0..MAP_W {
+        let (cx, cy) = tile_center(x, y, camera, elevation[y][x]);
+        let score = (px - cx).abs() / (ISO_TILE_W * 0.5) + (py - cy).abs() / (ISO_TILE_H * 0.5);
+        let top_priority = score - elevation[y][x] as f32 * 0.001;
+        if score <= 1.0 && closest.map(|best| top_priority < best.0).unwrap_or(true) {
+            closest = Some((top_priority, x, y));
+        }
+    }}
+    closest.map(|(_, x, y)| (x, y))
 }
 
 fn in_map_view(x: f32, y: f32) -> bool { x >= VIEW_LEFT && x <= VIEW_RIGHT && y >= VIEW_TOP && y <= VIEW_BOTTOM }
@@ -549,6 +610,14 @@ fn draw_diamond_outline(cx: f32, cy: f32, rx: f32, ry: f32, thickness: f32, colo
     draw_line(right.x, right.y, bottom.x, bottom.y, thickness, color);
     draw_line(bottom.x, bottom.y, left.x, left.y, thickness, color);
     draw_line(left.x, left.y, top.x, top.y, thickness, color);
+}
+
+fn draw_cliff_face(a: Vec2, b: Vec2, drop: f32, side: Color, edge: Color) {
+    let lower_a = a + vec2(0.0, drop);
+    let lower_b = b + vec2(0.0, drop);
+    draw_triangle(a, b, lower_b, side);
+    draw_triangle(a, lower_b, lower_a, side);
+    draw_line(lower_a.x, lower_a.y, lower_b.x, lower_b.y, 1.0, edge);
 }
 
 fn damage(attacker: Kind, defender: Kind) -> i32 {
