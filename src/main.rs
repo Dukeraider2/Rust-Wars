@@ -110,7 +110,7 @@ impl Game {
             let reverse = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
             self.cycle_target(reverse);
         }
-        if is_key_pressed(KeyCode::Escape) { self.selected = None; }
+        if is_key_pressed(KeyCode::Escape) { self.selected = None; self.target = None; }
         if is_key_pressed(KeyCode::E) { self.end_turn(); }
         if is_key_pressed(KeyCode::P) { self.pan_mode = !self.pan_mode; self.dragging = false; }
         if is_key_pressed(KeyCode::Home) { self.camera = vec2(0.0, -16.0); }
@@ -143,11 +143,12 @@ impl Game {
         if is_mouse_button_pressed(MouseButton::Left) {
             if Rect::new(1020.0, 710.0, 212.0, 48.0).contains(vec2(mx, my)) { self.end_turn(); }
             else if !self.pan_mode {
-                if let Some((x, y)) = tile_from_screen(mx, my, self.camera, &self.elevation) { self.click_tile(x, y); }
+                if self.attack_menu_rect().is_some_and(|menu| menu.contains(vec2(mx, my))) { self.click_attack_option(mx, my); }
+                else if let Some((x, y)) = tile_from_screen(mx, my, self.camera, &self.elevation) { self.click_tile(x, y); }
                 else if mx < VIEW_RIGHT { self.selected = None; }
             }
         }
-        if is_mouse_button_pressed(MouseButton::Right) { self.selected = None; }
+        if is_mouse_button_pressed(MouseButton::Right) { self.selected = None; self.target = None; }
     }
 
     fn cycle_target(&mut self, reverse: bool) {
@@ -173,16 +174,8 @@ impl Game {
                 self.note(format!("{} selected // {} HP", kind_name(unit.kind), unit.hp));
             } else {
                 self.target = Some(unit.id);
-                let can_fire = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id))
-                    .map(|attacker| !attacker.acted && self.can_attack(attacker.kind, attacker.x, attacker.y, unit.x, unit.y)).unwrap_or(false);
-                if can_fire { if let Some(id) = self.selected { self.attack(id, unit.id); } }
-                else {
-                    self.sfx_queue.push(Sfx::Select);
-                    let reason = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id))
-                        .map(|attacker| if attacker.acted { "ORDER SPENT" } else if in_weapon_range(attacker.kind, attacker.x, attacker.y, unit.x, unit.y) { "FIRING LANE BLOCKED" } else { "OUT OF RANGE" })
-                        .unwrap_or("SELECT A UNIT TO AIM");
-                    self.note(format!("TARGET LOCK // BOT {} #{} // {}", kind_name(unit.kind).to_uppercase(), unit.id, reason));
-                }
+                self.sfx_queue.push(Sfx::Select);
+                self.note(format!("TARGET LOCK // BOT {} #{} // CHOOSE ATTACK OPTION", kind_name(unit.kind).to_uppercase(), unit.id));
             }
             return;
         }
@@ -366,6 +359,7 @@ impl Game {
         clear_background(rgb(11, 17, 24));
         self.draw_header();
         self.draw_board(unit_atlas);
+        self.draw_attack_menu();
         self.draw_panel();
         if let Some(winner) = self.over { self.draw_result(winner); }
     }
@@ -525,6 +519,76 @@ impl Game {
         draw_rectangle(cx - 14.0, cy + 8.0, 28.0, 4.0, rgb(29, 38, 39));
         draw_rectangle(cx - 14.0, cy + 8.0, 28.0 * u.hp.max(0) as f32 / 10.0, 4.0, if u.hp > 5 { rgb(124, 203, 142) } else { rgb(233, 139, 91) });
         if u.acted { draw_diamond(cx, cy, ISO_TILE_W * 0.46, ISO_TILE_H * 0.42, Color::new(0.03, 0.05, 0.07, 0.32)); }
+        if u.team == BOTS && self.target == Some(u.id) {
+            let tx = cx + 35.0;
+            let ty = cy - 62.0;
+            let red = rgb(247, 66, 56);
+            draw_circle_lines(tx, ty, 8.0, 2.0, red);
+            draw_line(tx - 14.0, ty, tx - 5.0, ty, 2.0, red);
+            draw_line(tx + 5.0, ty, tx + 14.0, ty, 2.0, red);
+            draw_line(tx, ty - 14.0, tx, ty - 5.0, 2.0, red);
+            draw_line(tx, ty + 5.0, tx, ty + 14.0, 2.0, red);
+            draw_circle(tx, ty, 2.0, red);
+        }
+    }
+
+    fn attack_menu_rect(&self) -> Option<Rect> {
+        let target = self.target.and_then(|id| self.units.iter().find(|u| u.id == id && u.team == BOTS))?;
+        let option_count = self.units.iter().filter(|u| u.team == HUMAN).count();
+        let width = 250.0;
+        let height = 40.0 + option_count as f32 * 21.0;
+        let (cx, cy) = tile_center(target.x, target.y, self.camera, self.elevation[target.y][target.x]);
+        let preferred_x = if cx + 42.0 + width <= VIEW_RIGHT { cx + 42.0 } else { cx - width - 42.0 };
+        let x = preferred_x.clamp(VIEW_LEFT + 4.0, VIEW_RIGHT - width - 4.0);
+        let y = (cy - 76.0).clamp(VIEW_TOP + 34.0, VIEW_BOTTOM - height - 4.0);
+        Some(Rect::new(x, y, width, height))
+    }
+
+    fn attack_option(&self, attacker: &Unit, target: &Unit) -> (String, Color, bool) {
+        let name = format!("{:02} {}", attacker.id, kind_name(attacker.kind).to_uppercase());
+        if attacker.acted { (format!("{}   SPENT", name), rgb(135, 145, 145), false) }
+        else if self.can_attack(attacker.kind, attacker.x, attacker.y, target.x, target.y) {
+            (format!("{}   FIRE / {} DMG", name, self.attack_damage(attacker, target)), rgb(123, 210, 153), true)
+        } else if in_weapon_range(attacker.kind, attacker.x, attacker.y, target.x, target.y) {
+            (format!("{}   BLOCKED LANE", name), rgb(233, 178, 100), false)
+        } else {
+            (format!("{}   OUT OF RANGE", name), rgb(145, 157, 159), false)
+        }
+    }
+
+    fn draw_attack_menu(&self) {
+        let (Some(menu), Some(target)) = (self.attack_menu_rect(), self.target.and_then(|id| self.units.iter().find(|u| u.id == id))) else { return; };
+        draw_rectangle(menu.x + 4.0, menu.y + 5.0, menu.w, menu.h, Color::new(0.0, 0.0, 0.0, 0.45));
+        draw_rectangle(menu.x, menu.y, menu.w, menu.h, rgb(18, 27, 35));
+        draw_rectangle_lines(menu.x, menu.y, menu.w, menu.h, 2.0, rgb(226, 103, 75));
+        draw_text(&format!("ATTACK OPTIONS // BOT #{}", target.id), menu.x + 12.0, menu.y + 19.0, 10.0, rgb(242, 221, 188));
+        draw_line(menu.x + 10.0, menu.y + 26.0, menu.x + menu.w - 10.0, menu.y + 26.0, 1.0, rgb(64, 79, 83));
+        let start_y = menu.y + 31.0;
+        for (index, attacker) in self.units.iter().filter(|u| u.team == HUMAN).enumerate() {
+            let row_y = start_y + index as f32 * 21.0;
+            let (_, color, ready) = self.attack_option(attacker, target);
+            draw_rectangle(menu.x + 7.0, row_y, menu.w - 14.0, 19.0, if ready { rgb(30, 57, 53) } else { rgb(24, 36, 43) });
+            let (label, _, _) = self.attack_option(attacker, target);
+            draw_text(&label, menu.x + 13.0, row_y + 13.5, 9.0, color);
+        }
+    }
+
+    fn click_attack_option(&mut self, mx: f32, my: f32) {
+        let (Some(menu), Some(target_id)) = (self.attack_menu_rect(), self.target) else { return; };
+        if mx < menu.x + 7.0 || mx > menu.x + menu.w - 7.0 || my < menu.y + 31.0 || my >= menu.y + menu.h { return; }
+        let index = ((my - (menu.y + 31.0)) / 21.0).floor() as usize;
+        let attackers: Vec<usize> = self.units.iter().filter(|u| u.team == HUMAN).map(|u| u.id).collect();
+        let Some(attacker_id) = attackers.get(index).copied() else { return; };
+        let Some(attacker) = self.units.iter().find(|u| u.id == attacker_id) else { return; };
+        let Some(target) = self.units.iter().find(|u| u.id == target_id) else { return; };
+        let (_, _, ready) = self.attack_option(attacker, target);
+        if ready {
+            self.selected = Some(attacker_id);
+            self.attack(attacker_id, target_id);
+        } else {
+            let (label, _, _) = self.attack_option(attacker, target);
+            self.note(label);
+        }
     }
 
     fn draw_panel(&self) {
