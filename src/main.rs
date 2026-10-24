@@ -777,57 +777,6 @@ fn window_conf() -> Conf {
     Conf { window_title: "RUST // WARS â€” Frontier 09".to_string(), window_width: 1280, window_height: 800, window_resizable: false, ..Default::default() }
 }
 
-fn build_frontier_theme() -> Vec<u8> {
-    const RATE: u32 = 22_050;
-    const BPM: f32 = 108.0;
-    const BEAT: f32 = 60.0 / BPM;
-    const BEATS: usize = 16;
-    const SAMPLES: usize = (RATE as f32 * BEAT * BEATS as f32) as usize;
-    const MELODY: [i16; 32] = [
-        62, 69, 74, 69, 65, 69, 72, 74, 67, 74, 79, 74, 72, 69, 67, 65,
-        62, 69, 74, 77, 76, 74, 72, 69, 65, 69, 72, 76, 74, 72, 69, 65,
-    ];
-    const BASS: [i16; 4] = [38, 34, 36, 33];
-    let mut pcm = Vec::with_capacity(SAMPLES * 2);
-    for n in 0..SAMPLES {
-        let t = n as f32 / RATE as f32;
-        let eighth = BEAT * 0.5;
-        let slot = ((t / eighth) as usize) % MELODY.len();
-        let slot_time = t % eighth;
-        let midi = MELODY[slot];
-        let lead = if midi == 0 { 0.0 } else {
-            let hz = 440.0 * 2.0_f32.powf((midi as f32 - 69.0) / 12.0);
-            let phase = (t * hz).fract();
-            let gate = if slot_time > eighth * 0.82 { 0.0 } else { 1.0 };
-            let attack = (slot_time / 0.012).min(1.0);
-            let release = ((eighth - slot_time) / 0.025).min(1.0);
-            (if phase < 0.46 { 1.0 } else { -1.0 }) * gate * attack * release * 0.16
-        };
-
-        let beat_index = (t / BEAT) as usize;
-        let bar = (beat_index / 4) % BASS.len();
-        let bass_note = BASS[bar] + if beat_index % 4 == 2 { 7 } else { 0 };
-        let bass_hz = 440.0 * 2.0_f32.powf((bass_note as f32 - 69.0) / 12.0);
-        let bass_phase = (t * bass_hz).fract();
-        let bass_wave = 1.0 - 4.0 * (bass_phase - 0.5).abs();
-        let bass = bass_wave * 0.20;
-
-        let beat_time = t % BEAT;
-        let kick = if beat_index % 4 == 0 && beat_time < 0.16 {
-            (2.0 * PI * (58.0 + 95.0 * (1.0 - beat_time / 0.16)) * beat_time).sin()
-                * (1.0 - beat_time / 0.16) * 0.22
-        } else { 0.0 };
-        let snare = if beat_index % 4 == 2 && beat_time < 0.08 {
-            let noise = (((n as u32).wrapping_mul(1_664_525).wrapping_add(1_013_904_223) >> 16) as i16) as f32 / 32_768.0;
-            noise * (1.0 - beat_time / 0.08) * 0.08
-        } else { 0.0 };
-        let sample = (lead + bass + kick + snare).clamp(-0.92, 0.92);
-        pcm.extend_from_slice(&((sample * i16::MAX as f32) as i16).to_le_bytes());
-    }
-
-    wav_from_pcm(&pcm, RATE)
-}
-
 fn build_sfx(cue: Sfx) -> Vec<u8> {
     const RATE: u32 = 22_050;
     let (duration, start_hz, end_hz, volume) = match cue {
@@ -885,8 +834,8 @@ async fn main() {
     let unit_atlas_bytes = decode_base64(include_str!("../assets/unit_atlas.png.b64"));
     let unit_atlas = Texture2D::from_file_with_format(&unit_atlas_bytes, Some(ImageFormat::Png));
     unit_atlas.set_filter(FilterMode::Nearest);
-    let music_data = build_frontier_theme();
-    let music: Sound = audio::load_sound_from_bytes(&music_data).await.expect("built-in theme is a valid WAV");
+    let music_data = include_bytes!("../assets/battle_theme.ogg");
+    let music: Sound = audio::load_sound_from_bytes(music_data).await.expect("bundled OpenGameArt OGG battle theme is valid");
     audio::play_sound(&music, PlaySoundParams { looped: true, volume: 0.24 });
     let mut sound_effects = Vec::with_capacity(Sfx::ALL.len());
     for cue in Sfx::ALL {
