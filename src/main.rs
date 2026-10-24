@@ -6,10 +6,10 @@ const MAP_H: usize = 12;
 const ISO_TILE_W: f32 = 64.0;
 const ISO_TILE_H: f32 = 32.0;
 const ELEVATION_STEP: f32 = 9.0;
-const VIEW_CENTER_X: f32 = 356.0;
+const VIEW_CENTER_X: f32 = 489.0;
 const VIEW_CENTER_Y: f32 = 420.0;
 const VIEW_LEFT: f32 = 20.0;
-const VIEW_RIGHT: f32 = 690.0;
+const VIEW_RIGHT: f32 = 958.0;
 const VIEW_TOP: f32 = 154.0;
 const VIEW_BOTTOM: f32 = 664.0;
 const HUMAN: u8 = 0;
@@ -94,7 +94,7 @@ impl Game {
             terrain, elevation, units, sites, selected: None, target: None, round: 1, over: None,
             log: vec!["FRONTIER 09 // capture three command sites".to_string(), "Select a unit, then click a highlighted tile.".to_string()],
             music_on: true,
-            camera: vec2(-320.0, -16.0), last_mouse: vec2(0.0, 0.0), dragging: false,
+            camera: vec2(0.0, -16.0), last_mouse: vec2(0.0, 0.0), dragging: false,
             drag_with_left: false, pan_mode: false,
             sfx_queue: Vec::new(),
         }
@@ -110,7 +110,7 @@ impl Game {
         if is_key_pressed(KeyCode::Escape) { self.selected = None; }
         if is_key_pressed(KeyCode::E) { self.end_turn(); }
         if is_key_pressed(KeyCode::P) { self.pan_mode = !self.pan_mode; self.dragging = false; }
-        if is_key_pressed(KeyCode::Home) { self.camera = vec2(-320.0, -16.0); }
+        if is_key_pressed(KeyCode::Home) { self.camera = vec2(0.0, -16.0); }
         let pan_speed = 360.0 * get_frame_time();
         if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) { self.camera.x -= pan_speed; }
         if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) { self.camera.x += pan_speed; }
@@ -502,52 +502,52 @@ impl Game {
     }
 
     fn draw_panel(&self) {
-        let x = 718.0;
-        draw_rectangle(x, 132.0, 522.0, 548.0, rgb(20, 30, 39));
+        let x = 978.0;
+        draw_rectangle(x, 132.0, 282.0, 548.0, rgb(20, 30, 39));
         draw_rectangle(x, 132.0, 4.0, 548.0, rgb(210, 92, 48));
-        draw_text("BATTLE STATUS", x + 22.0, 165.0, 17.0, rgb(233, 224, 200));
-        draw_text("YOUR SQUAD  //  FIVE UNITS", x + 22.0, 198.0, 12.0, rgb(110, 145, 156));
+        draw_text("BATTLE STATUS", x + 16.0, 165.0, 15.0, rgb(233, 224, 200));
+        draw_text("SQUAD // FIVE UNITS", x + 16.0, 198.0, 10.0, rgb(110, 145, 156));
         let human_units: Vec<&Unit> = self.units.iter().filter(|u| u.team == HUMAN).collect();
         for (row, u) in human_units.iter().enumerate() {
             let y = 205.0 + row as f32 * 34.0;
-            draw_rectangle(x + 18.0, y, 484.0, 30.0, if self.selected == Some(u.id) { rgb(36, 60, 68) } else { rgb(27, 39, 46) });
+            draw_rectangle(x + 14.0, y, 254.0, 30.0, if self.selected == Some(u.id) { rgb(36, 60, 68) } else { rgb(27, 39, 46) });
             let col = if u.acted { rgb(115, 133, 135) } else { rgb(96, 207, 220) };
-            draw_rectangle(x + 27.0, y + 5.0, 20.0, 20.0, col);
-            draw_text(&format!("{}", unit_glyph(u.kind)), x + 33.0, y + 20.0, 13.0, rgb(19, 31, 37));
-            draw_text(&format!("{:02}  {}", u.id, kind_name(u.kind).to_uppercase()), x + 60.0, y + 20.0, 13.0, rgb(226, 228, 211));
-            draw_text(&format!("HP {:02}", u.hp), x + 280.0, y + 20.0, 11.0, rgb(137, 158, 156));
-            draw_text(if u.acted { "SPENT" } else { "READY" }, x + 419.0, y + 20.0, 10.0, if u.acted { rgb(123, 132, 130) } else { rgb(123, 210, 153) });
+            draw_rectangle(x + 21.0, y + 5.0, 20.0, 20.0, col);
+            draw_text(unit_glyph(u.kind), x + 27.0, y + 20.0, 13.0, rgb(19, 31, 37));
+            draw_text(&format!("{:02} {}", u.id, kind_name(u.kind).to_uppercase()), x + 47.0, y + 19.0, 9.0, rgb(226, 228, 211));
+            draw_text(&format!("{}hp", u.hp), x + 158.0, y + 19.0, 9.0, rgb(137, 158, 156));
+            draw_text(if u.acted { "SPENT" } else { "READY" }, x + 196.0, y + 19.0, 8.0, if u.acted { rgb(123, 132, 130) } else { rgb(123, 210, 153) });
         }
-        draw_line(x + 20.0, 384.0, x + 500.0, 384.0, 1.0, rgb(53, 69, 75));
-        draw_text("FIELD ORDERS  //  SELECT A BOT TO LOCK TARGET", x + 22.0, 407.0, 12.0, rgb(110, 145, 156));
+        draw_line(x + 16.0, 384.0, x + 266.0, 384.0, 1.0, rgb(53, 69, 75));
+        draw_text("FIELD ORDERS", x + 16.0, 407.0, 10.0, rgb(110, 145, 156));
         let selected = self.selected.and_then(|id| self.units.iter().find(|u| u.id == id));
         if let Some(u) = selected {
-            let action = if u.acted { "ACTION SPENT // END TURN TO RESET" } else { match u.kind { Kind::Infantry => "MOVE 3  /  CAPTURE COMMAND SITES", Kind::Tank => "MOVE 4  /  DIRECT FIRE: 1 TILE", Kind::Artillery => "MOVE 3  /  INDIRECT FIRE: 2â€“3 TILES" } };
-            draw_text(&format!("ORDER // {} #{}  HP {}", kind_name(u.kind).to_uppercase(), u.id, u.hp), x + 22.0, 434.0, 16.0, rgb(232, 222, 197));
-            draw_text(action, x + 22.0, 455.0, 11.0, if u.acted { rgb(219, 151, 103) } else { rgb(148, 182, 163) });
+            let action = if u.acted { "ACTION SPENT // END TURN TO RESET" } else { match u.kind { Kind::Infantry => "MOVE 3 / CAPTURE SITES", Kind::Tank => "MOVE 4 / DIRECT FIRE: 1 TILE", Kind::Artillery => "MOVE 3 / INDIRECT FIRE: 2-3 TILES" } };
+            draw_text(&format!("{} #{}  HP {}  Z{}", kind_name(u.kind).to_uppercase(), u.id, u.hp, self.elevation[u.y][u.x]), x + 16.0, 434.0, 12.0, rgb(232, 222, 197));
+            draw_text(action, x + 16.0, 455.0, 8.0, if u.acted { rgb(219, 151, 103) } else { rgb(148, 182, 163) });
         } else {
-            draw_text("CLICK A HUMAN UNIT TO ISSUE ORDERS", x + 22.0, 435.0, 14.0, rgb(202, 213, 201));
-            draw_text("INFANTRY CAPTURES THE GOLD SITES", x + 22.0, 455.0, 11.0, rgb(148, 182, 163));
+            draw_text("SELECT A UNIT FOR ORDERS", x + 16.0, 435.0, 10.0, rgb(202, 213, 201));
+            draw_text("INFANTRY CAPTURES SITES", x + 16.0, 455.0, 9.0, rgb(148, 182, 163));
         }
         if let Some(id) = self.target {
             if let Some(enemy) = self.units.iter().find(|u| u.id == id) {
-                draw_text(&format!("TARGET LOCK // BOT {} #{}  HP {}", kind_name(enemy.kind).to_uppercase(), enemy.id, enemy.hp), x + 22.0, 480.0, 12.0, rgb(240, 139, 103));
+                draw_text(&format!("TARGET // BOT {} #{}  HP {} Z{}", kind_name(enemy.kind).to_uppercase(), enemy.id, enemy.hp, self.elevation[enemy.y][enemy.x]), x + 16.0, 480.0, 9.0, rgb(240, 139, 103));
             }
         } else {
-            draw_text("TARGET LOCK // CLICK A BOT OR PRESS TAB", x + 22.0, 480.0, 11.0, rgb(143, 162, 160));
+            draw_text("TARGET // CLICK BOT OR PRESS TAB", x + 16.0, 480.0, 9.0, rgb(143, 162, 160));
         }
-        draw_text("COMMS // LAST REPORTS", x + 22.0, 520.0, 12.0, rgb(110, 145, 156));
+        draw_text("COMMS // REPORTS", x + 16.0, 520.0, 10.0, rgb(110, 145, 156));
         for (i, line) in self.log.iter().rev().take(4).enumerate() {
-            draw_text(line, x + 22.0, 541.0 + i as f32 * 20.0, 11.0, if i == 0 { rgb(220, 192, 138) } else { rgb(143, 162, 160) });
+            let compact: String = line.chars().take(39).collect();
+            draw_text(&compact, x + 16.0, 541.0 + i as f32 * 20.0, 8.0, if i == 0 { rgb(220, 192, 138) } else { rgb(143, 162, 160) });
         }
-        draw_text("CLICK TILE: MOVE / ATTACK   TAB: NEXT BOT   M: MUSIC", x + 22.0, 658.0, 10.0, rgb(104, 126, 130));
+        draw_text("CLICK: ORDER / TAB: TARGET / M: MUSIC", x + 16.0, 658.0, 8.0, rgb(104, 126, 130));
         let button = Rect::new(1020.0, 710.0, 212.0, 48.0);
         let hovered = button.contains(vec2(mouse_position().0, mouse_position().1));
         draw_rectangle(button.x, button.y, button.w, button.h, if hovered { rgb(223, 111, 66) } else { rgb(195, 86, 53) });
         draw_text("END TURN  [ E ]", button.x + 31.0, button.y + 31.0, 18.0, rgb(252, 239, 217));
-        draw_text("DEMO BUILD  //  PROTOTYPE", 38.0, 756.0, 11.0, rgb(87, 111, 113));
+        draw_text("DEMO BUILD // PROTOTYPE", 38.0, 756.0, 11.0, rgb(87, 111, 113));
     }
-
     fn draw_result(&self, winner: u8) {
         draw_rectangle(0.0, 0.0, 1280.0, 800.0, Color::new(0.02, 0.04, 0.06, 0.82));
         let title = if winner == HUMAN { "FRONTIER SECURED" } else { "FRONTIER OVERRUN" };
