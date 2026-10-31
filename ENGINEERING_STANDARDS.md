@@ -1,7 +1,7 @@
 # Lab Engineering Standards Adoption
 
 **Status:** Proposed for adoption in this repository.  
-**Canonical source:** [Framework Desktop AI Lab — Engineering Governance](https://github.com/Dukeraider2/framework-desktop-ai-lab/tree/docs/ai-engineering-standards/docs/engineering)  
+**Canonical source:** [Framework Desktop AI Lab — Engineering Governance](https://github.com/Dukeraider2/framework-desktop-ai-lab/tree/main/docs/engineering)  
 **Canonical change set:** [Governance and knowledge-base PR #2](https://github.com/Dukeraider2/framework-desktop-ai-lab/pull/2)
 
 This repository adopts the shared engineering baseline maintained in the canonical AI lab repository. The canonical documents are authoritative for shared process and engineering policy; this file provides a concise local entry point. Project-specific requirements may add stricter controls but must not silently weaken the shared baseline.
@@ -21,7 +21,7 @@ This repository adopts the shared engineering baseline maintained in the canonic
 
 ## Task reporting
 
-Use the canonical Stage 1, Stage 2, and Stage 3 templates in the [engineering templates directory](https://github.com/Dukeraider2/framework-desktop-ai-lab/tree/docs/ai-engineering-standards/docs/engineering/templates). Record estimated and actual active time, blocked/wait time, total elapsed time, and estimate variance for each stage. Do not invent measurements or precise time records.
+Use the canonical Stage 1, Stage 2, and Stage 3 templates in the [engineering templates directory](https://github.com/Dukeraider2/framework-desktop-ai-lab/tree/main/docs/engineering/templates). Record estimated and actual active time, blocked/wait time, total elapsed time, and estimate variance for each stage. Do not invent measurements or precise time records.
 
 ## Project-specific applicability
 
